@@ -445,8 +445,56 @@ def show_sub_report(report, sub_report):
     })
 
 
+class SummaryReport:
+
+    def __init__(self):
+        self.__dict__['summary'] = {}
+
+    def __setattr__(self, name, value):
+        self.__dict__['summary'][name] = value
+
+    def table(self, prefix=''):
+
+        table = []
+        for k, v in self.__dict__['summary'].items():
+            table.append({
+                'item': f"{prefix}{'_' if prefix else ''}{k}",
+                'value': v
+            })
+
+        return table
+
+
+def collect_reference_info(table_raw):
+
+    report = SummaryReport()
+
+    report.num_paper = len(set([
+        (i['Author'], i['RefYear'], i['Journal'], i['MedlineID'])
+        for i in table_raw
+    ]))
+    report.num_isolate = len(table_raw)
+    report.num_patient = len(set([
+        i['PtID']
+        for i in table_raw
+    ]))
+    report.num_isolate_partial_mutation = len([
+        i
+        for i in table_raw
+        if i['CompleteMutationListAvailable'] == 'No'
+    ])
+    report.num_paper_partial_mutation = len(set([
+        (i['Author'], i['RefYear'], i['Journal'], i['MedlineID'])
+        for i in table_raw
+        if i['CompleteMutationListAvailable'] == 'No'
+    ]))
+
+    return report
+
+
 def work():
     table_raw = load_tsv(WS / 'geno-rx.dataset.tsv')
+
     table_major = [
         i
         for i in table_raw
@@ -454,6 +502,11 @@ def work():
     ]
     print(f'Including isolates with major DRMs: {len(table_major)}')
     print('*' * 20)
+
+    report = collect_reference_info(table_raw).table()
+    report += collect_reference_info(table_major).table('W_DRM')
+
+    dump_csv(WS / 'reference_info.csv', report)
 
     isolates = []
 
