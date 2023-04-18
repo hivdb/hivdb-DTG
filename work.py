@@ -72,6 +72,13 @@ def dump_csv(file_path, records, headers=None):
         writer.writerows(final_records)
 
 
+def dump_csv_raw(file_path, table):
+
+    with open(file_path, 'w', encoding='utf-8-sig') as fd:
+        writer = csv.writer(fd)
+        writer.writerows(table)
+
+
 def group_records_by(records, group_key_list):
 
     if not isinstance(group_key_list, list):
@@ -288,7 +295,7 @@ def group_by_major_pos(drm_pattern):
         ]) & set(DTG_MAJOR_POSITION))
 
         rec['major_pos_list'] = drm_pos
-        rec['major_pos_nubmer'] = len(drm_pos)
+        rec['num_major_pos'] = len(drm_pos)
         rec['pos_list'] = tuple(sorted([
             m['pos']
             for m in mut_list
@@ -297,52 +304,13 @@ def group_by_major_pos(drm_pattern):
     return group_records_by(drm_pattern, 'major_pos_list')
 
 
-def combine_by_pos(patterns):
+def combine_drm_by_pos(patterns):
 
     results = []
     for pos_list, pos_patterns in group_records_by(patterns, 'pos_list'):
-        new_pattern = {'pos_list': pos_list}
+        new_pattern = get_combined_pattern(pos_list, pos_patterns)
 
-        new_pattern['num_isolate'] = sum([
-            i['num_isolate']
-            for i in pos_patterns
-        ])
-        new_pattern['major_pos_list'] = pos_patterns[0]['major_pos_list']
-        new_pattern['major_pos_nubmer'] = pos_patterns[0]['major_pos_nubmer']
-
-        mut_list = [
-            parse_mut_str_list(i['pattern'])
-            for i in pos_patterns
-        ]
-        new_mut_list = []
-        for pos in pos_list:
-            ref = list(set([
-                j['ref']
-                for i in mut_list
-                for j in i
-                if j['pos'] == pos
-            ]))[0]
-            muts = [
-                j['mut']
-                for i in mut_list
-                for j in i
-                if j['pos'] == pos
-            ]
-            new_mut_list.append({
-                'ref': ref,
-                'pos': pos,
-                'mut': ''.join(sorted(set(muts)))
-            })
-        new_pattern['pattern'] = bind_mut_str_list(new_mut_list)
-
-        major_combined = False
-        for mut in new_mut_list:
-            if (
-                (mut['pos'] in new_pattern['major_pos_list'])
-                    and len(mut['mut']) > 1):
-                major_combined = True
-
-        if not major_combined:
+        if not has_major_pos_combined(new_pattern):
             # pprint(new_pattern)
             results.append(new_pattern)
         else:
@@ -351,33 +319,130 @@ def combine_by_pos(patterns):
     return results
 
 
-def generate_pathway_report(drm_pattern):
+def has_major_pos_combined(new_pattern):
+    new_mut_list = parse_mut_str_list(new_pattern['pattern'])
 
-    drm_pattern = list(drm_pattern)
-    drm_pattern.sort(key=lambda x: x[0])
+    for mut in new_mut_list:
+        if ((mut['pos'] in new_pattern['major_pos_list'])
+                and len(mut['mut']) > 1):
+            return True
+
+    return False
+
+
+def get_combined_pattern(pos_list, pos_patterns):
+    new_pattern = {'pos_list': pos_list}
+
+    new_pattern['num_isolate'] = sum([
+        i['num_isolate']
+        for i in pos_patterns
+    ])
+    new_pattern['major_pos_list'] = pos_patterns[0]['major_pos_list']
+    new_pattern['num_major_pos'] = pos_patterns[0]['num_major_pos']
+
+    mut_list = [
+        parse_mut_str_list(i['pattern'])
+        for i in pos_patterns
+    ]
+    new_mut_list = []
+    for pos in pos_list:
+        ref = list(set([
+            j['ref']
+            for i in mut_list
+            for j in i
+            if j['pos'] == pos
+        ]))[0]
+        muts = [
+            j['mut']
+            for i in mut_list
+            for j in i
+            if j['pos'] == pos
+        ]
+        new_mut_list.append({
+            'ref': ref,
+            'pos': pos,
+            'mut': ''.join(sorted(set(muts)))
+        })
+    new_pattern['pattern'] = bind_mut_str_list(new_mut_list)
+
+    return new_pattern
+
+
+def merge_drm_pattern(drm_pattern):
+
+    drm_pattern_group = defaultdict(list)
+
+    for drm_pos_list, patterns in drm_pattern:
+        patterns = combine_drm_by_pos(patterns)
+
+        drm_pattern_group[drm_pos_list] = patterns
+
+    return drm_pattern_group
+
+
+def sort_pattern_pos(pattern):
+
+    pattern = parse_mut_str_list(pattern)
+    pattern.sort(
+            key=lambda x:
+            (
+                DTG_MAJOR_POSITION + DTG_MINOR_POSITION + [x['pos']]
+            ).index(x['pos'])
+        )
+
+    return bind_mut_str_list(pattern)
+
+
+def prepare_report(drm_pattern):
 
     report = []
-    for drm_pos_list, patterns in drm_pattern:
-        patterns = combine_by_pos(patterns)
-        for rec in patterns:
-            pattern = parse_mut_str_list(rec['pattern'])
-            pattern.sort(
-                key=lambda x:
-                (
-                    DTG_MAJOR_POSITION + DTG_MINOR_POSITION + [x['pos']]
-                ).index(x['pos'])
-            )
-            pattern = bind_mut_str_list(pattern)
-            report.append({
-                'pattern': pattern,
-                'num_isolate': rec['num_isolate']
-            })
 
-        report.append({
-            'pattern': '----'
-        })
+    for pos in DTG_MAJOR_POSITION:
+        for drm_pos_list, patterns in drm_pattern.items():
+            if pos not in drm_pos_list:
+                continue
+
+            [
+                rec.update({'pattern': sort_pattern_pos(rec['pattern'])})
+                for rec in patterns
+            ]
+            patterns.sort(key=lambda x: len(x['pos_list']))
+
+            sub_report = [{
+                    'pattern': rec['pattern'],
+                    'num_isolate': rec['num_isolate'],
+                }
+                for rec in patterns
+                if not rec.get('processed')
+            ]
+
+            [
+                rec.update({'processed': True})
+                for rec in patterns
+            ]
+
+            if sub_report:
+                show_sub_report(report, sub_report)
+
+    for drm_pos_list, patterns in drm_pattern.items():
+        for rec in patterns:
+            if rec.get('processed'):
+                continue
+            sub_report = [{
+                'pattern': rec['pattern'],
+                'num_isolate': rec['num_isolate'],
+            }]
+
+            show_sub_report(report, sub_report)
 
     return report
+
+
+def show_sub_report(report, sub_report):
+    report.extend(sub_report)
+    report.append({
+        'pattern': '----'
+    })
 
 
 def work():
@@ -411,7 +476,9 @@ def work():
 
     drm_pattern = group_by_major_pos(drm_pattern)
 
-    dump_csv(WS / 'pathway.csv', generate_pathway_report(drm_pattern))
+    drm_pattern = merge_drm_pattern(drm_pattern)
+
+    dump_csv(WS / 'pathway.csv', prepare_report(drm_pattern))
 
     print('Finish.')
 
