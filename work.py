@@ -1,13 +1,23 @@
 #!/usr/bin/env python3.9
-import csv
 from pathlib import Path
 from collections import defaultdict
-import re
 from operator import itemgetter
 from pprint import pprint
+from preset.file_formats import load_tsv
+from preset.file_formats import load_yaml
+from preset.file_formats import dump_csv
+from preset.mutation_literal import parse_mut_str_list
+from preset.mutation_literal import parse_mut_str
+from preset.mutation_literal import bind_mut_str_list
+from preset.table import group_records_by
+from preset.mutation_ops import combine_mutation_pattern
+from preset.report import SummaryReport
+from collections import OrderedDict
 
 
-WS = Path(__file__).resolve().parent / 'database'
+WS = Path(__file__).resolve().parent
+DB = Path(__file__).resolve().parent / 'database'
+DB_FOLDER = 'Apr 24, 2023'
 
 
 DTG_MAJOR_POSITION = [
@@ -17,269 +27,139 @@ DTG_MAJOR_POSITION = [
     155,
 ]
 
-DTG_MINOR_POSITION = [
-    138,
-    232,
-    230,
-    51,
-]
 
+def collect_reference_info(table_raw):
 
-def load_tsv(file_path):
-    records = []
-    with open(file_path, encoding='utf-8-sig') as fd:
-        for record in csv.DictReader(fd, delimiter='\t'):
-            records.append(record)
+    report = SummaryReport()
 
-    return records
+    report.num_paper = len(set([
+        (i['Author'], i['RefYear'], i['Journal'], i['MedlineID'])
+        for i in table_raw
+    ]))
 
+    report.num_isolate = len(table_raw)
+    report.num_patient = len(set([
+        i['PtID']
+        for i in table_raw
+    ]))
 
-def load_csv(file_path):
-    records = []
-
-    with open(file_path, encoding='utf-8-sig') as fd:
-        for record in csv.DictReader(fd):
-            records.append(record)
-    return records
-
-
-def dump_csv(file_path, records, headers=None):
-    if not records:
-        return
-    if not headers:
-        headers = []
-        for rec in records:
-            for key in rec.keys():
-                if key not in headers:
-                    headers.append(key)
-
-    final_records = []
-    for rec in records:
-        new_rec = {}
-        for key in headers:
-            new_rec[key] = rec.get(key, '')
-        for k, v in rec.items():
-            if type(v) == bool:
-                new_rec[k] = 'yes' if v else 'no'
-        final_records.append(new_rec)
-
-    file_path = Path(file_path)
-    file_path.parent.mkdir(exist_ok=True, parents=True)
-
-    with open(file_path, 'w', encoding='utf-8-sig') as fd:
-        writer = csv.DictWriter(fd, fieldnames=headers)
-        writer.writeheader()
-        writer.writerows(final_records)
-
-
-def dump_csv_raw(file_path, table):
-
-    with open(file_path, 'w', encoding='utf-8-sig') as fd:
-        writer = csv.writer(fd)
-        writer.writerows(table)
-
-
-def group_records_by(records, group_key_list):
-
-    if not isinstance(group_key_list, list):
-        group_key_list = [group_key_list]
-
-    group_result = defaultdict(list)
-    for r in records:
-        primary_key = {}
-        for key in group_key_list:
-            primary_key[key] = r[key]
-
-        if len(primary_key) == 1:
-            primary_key = list(primary_key.values())[0]
-        else:
-            primary_key = tuple(sorted(primary_key.items()))
-
-        group_result[primary_key].append(r)
-
-    for k, v in group_result.items():
-        yield k, v
-
-
-def parse_mut_str_list(mut_str):
-
-    mut_str_list = [i.strip() for i in mut_str.split(',') if i.strip()]
-
-    return [
-        parse_mut_str(i)
-        for i in mut_str_list
-    ]
-
-
-def parse_mut_str(mut_str):
-    match = re.match(r'^([A-Z])(\d+)([A-Z\_\*\-]*)$', mut_str).groups()
-    match = list(match)
-    match[1] = int(match[1])
-
-    return dict(zip(['ref', 'pos', 'mut'], match))
-
-
-def bind_mut_str_list(mutations):
-
-    return ', '.join([
-        bind_mut_str(i)
-        for i in mutations
-    ])
-
-
-def bind_mut_str(mutation):
-
-    return f"{mutation['ref']}{mutation['pos']}{mutation['mut']}"
-
-
-def isolate_has_major_mut(rec):
-
-    if rec['INIMajorDRMs']:
-        return True
-
-    minor_muts = parse_mut_str_list(rec['INIMinorDRMs'])
-    if any([i['pos'] in DTG_MINOR_POSITION for i in minor_muts]):
-        return True
-
-    return False
-
-
-def is_subpattern_mut_str(mut_str, patterns):
-    mut_list = parse_mut_str_list(mut_str)
-
-    for p in patterns:
-        if mut_str in p:
-            print(f'Found sub or same pattern ({mut_str}) in ({p})')
-            return True
-
-        pattern_mut_list = parse_mut_str_list(p)
-
-        check = [
-            any([
-                is_sub_mutation(mut, p)
-                for p in pattern_mut_list
-            ])
-            for mut in mut_list
-        ]
-
-        if all(check):
-            print('Sub pattern', mut_str, 'of', p)
-            return True
-
-    return False
-
-
-def is_sub_mutation(mut_a, mut_b):
-    if mut_a['pos'] != mut_b['pos']:
-        return False
-    if not (set(mut_a['mut']).issubset(set(mut_b['mut']))):
-        return False
-    return True
-
-
-def prorcess_mixture(record, method):
-
-    major_mut = process_mixture_mut(record, 'INIMajorDRMs', method)
-    minor_mut = process_mixture_mut(record, 'INIMinorDRMs', method)
-
-    minor_mut = [
+    report.num_isolate_complete_mutation = len([
         i
-        for i in minor_mut
-        if i['pos'] in DTG_MINOR_POSITION
-    ]
+        for i in table_raw
+        if i['CompleteMutationListAvailable'] == 'Yes'
+    ])
+    report.num_patient_complete_mutation = len(set([
+        i['PtID']
+        for i in table_raw
+        if i['CompleteMutationListAvailable'] == 'Yes'
+    ]))
 
-    drms = major_mut + minor_mut
+    report.num_isolate_partial_mutation = len([
+        i
+        for i in table_raw
+        if i['CompleteMutationListAvailable'] == 'No'
+    ])
+    report.num_patient_partial_mutation = len(set([
+        i['PtID']
+        for i in table_raw
+        if i['CompleteMutationListAvailable'] == 'No'
+    ]))
+
+    report.num_paper_partial_mutation = len(set([
+        (i['Author'], i['RefYear'], i['Journal'], i['MedlineID'])
+        for i in table_raw
+        if i['CompleteMutationListAvailable'] == 'No'
+    ]))
+
+    return report
+
+
+def load_main_drm(path):
+    main_drm_list = {}
+    for category, drm_list in load_yaml(path).items():
+        drm_list = [
+            parse_mut_str(i)
+            for i in drm_list
+        ]
+        main_drm_list[category] = drm_list
+
+    main_drm_list['nonpolymorphic'] = (
+        main_drm_list['SDRM'] + main_drm_list['nonpolymorphic'])
+
+    return main_drm_list
+
+
+def get_isolate_nonpoly_drm(rec, main_drms):
+
+    complete_muts = rec['CompMutList']
+    complete_muts = parse_mut_str_list(complete_muts)
+
+    poly_drms = []
+    nonpoly_drms = []
+    for mut in complete_muts:
+        nonpoly_drms.extend(
+            find_drm_from_mutation(mut, main_drms['nonpolymorphic']))
+
+        poly_drms.extend(
+            find_drm_from_mutation(mut, main_drms['polymorphic']))
+
+    rec['nonpoly_drms'] = bind_mut_str_list(nonpoly_drms)
+    rec['poly_drms'] = bind_mut_str_list(poly_drms)
+
+    drms = nonpoly_drms + poly_drms
     drms.sort(key=itemgetter('pos'))
+    rec['drms'] = bind_mut_str_list(drms)
 
-    record['DRMs'] = bind_mut_str_list(drms)
-    return record
-
-
-def process_mixture_mut(record, column, method='if_has_ref_ignore'):
-    drm_mut = record[column]
-
-    drm_mut = parse_mut_str_list(drm_mut)
-
-    if method == 'if_has_ref_ignore':
-        drm_mut = [
-            i
-            for i in drm_mut
-            if i['ref'] not in i['mut']
-        ]
-    elif method == 'if_has_ref_ignore_ref':
-        [
-            i.update({
-                'mut': i['mut'].replace(i['ref'], '')
-            })
-            for i in drm_mut
-        ]
-
-    record[column] = bind_mut_str_list(drm_mut)
-
-    return drm_mut
+    return rec
 
 
-def merge_invivo_muts(pt_iso_list):
-    pt_iso_list = [
-        prorcess_mixture(i, 'if_has_ref_ignore')
-        for i in pt_iso_list
-    ]
+def find_drm_from_mutation(mut, drm_list):
 
-    pt_iso_list.sort(key=lambda x: len(x['DRMs']))
+    matched_drm = []
+    for drm in drm_list:
 
-    merged_by_pattern = {}
-
-    for rec in pt_iso_list[::-1]:
-        drms = rec['DRMs']
-        if drms in list(merged_by_pattern.keys()):
-            print(f'Found sub or same pattern ({drms}) in ('
-                  f'{list(merged_by_pattern.keys())})')
+        if mut['pos'] != drm['pos']:
             continue
-        # if is_subpattern_mut_str(drms, list(merged_by_pattern.keys())):
-        #     continue
 
-        merged_by_pattern[drms] = rec
+        if mut['ref'] != drm['ref']:
+            print(f"Warning, ref erro, {mut['pos']}")
 
-    merged_pt_iso_list = list(merged_by_pattern.values())
+        shared_mut = set(mut['mut']) & set(drm['mut'])
 
-    if len(pt_iso_list) > len(merged_pt_iso_list):
-        print(
-            f"Merge isolates with duplicated"
-            f" mutations from patient #{pt_iso_list[0]['PtID']}")
+        if not (shared_mut):
+            continue
 
-    return merged_pt_iso_list
+        matched_drm.append({
+            'ref': mut['ref'],
+            'pos': mut['pos'],
+            'mut': ''.join(sorted(list(shared_mut)))
+        })
 
-
-def adapt_drm_pos_mut(isolates):
-
-    for i in isolates:
-        drms = []
-        for m in parse_mut_str_list(i['DRMs']):
-            # TODO
-            if m['pos'] not in DTG_MAJOR_POSITION:
-                drms.append(m)
-                continue
-
-            m['mut'] = m['mut'].replace(m['ref'], '')
-
-            if m['pos'] == 118:
-                m['mut'] = m['mut'].replace('S', '')
-
-            drms.append(m)
-
-        i['DRMs'] = bind_mut_str_list(drms)
-
-    return isolates
+    return matched_drm
 
 
-def group_by_drm_pattern(isolates):
+def get_patient_unique_mutation(pt_iso_list):
+
+    selected_pattern = []
+
+    for drm_pattern, rec_list in group_records_by(pt_iso_list, 'drms'):
+        selected_pattern.append(rec_list[0])
+
+    print(
+        f"Get unique mutation pattern from PtID {pt_iso_list[0]['PtID']}:"
+        f" {len(selected_pattern)}/{len(pt_iso_list)}")
+
+    return selected_pattern
+
+
+def count_drm_pattern_num_isolate(isolates):
 
     drm_pattern = [
         {
-            'pattern': k,
+            'drm_pattern': k,
             'num_isolate': len(v)
         }
-        for k, v in group_records_by(isolates, 'DRMs')
+        for k, v in group_records_by(isolates, 'drms')
     ]
     return drm_pattern
 
@@ -287,24 +167,40 @@ def group_by_drm_pattern(isolates):
 def group_by_major_pos(drm_pattern):
 
     for rec in drm_pattern:
-        mut_list = parse_mut_str_list(rec['pattern'])
+        drm_list = parse_mut_str_list(rec['drm_pattern'])
 
-        drm_pos = tuple(set([
+        major_pos_list = tuple(sorted(list(set([
             i['pos']
-            for i in mut_list
-        ]) & set(DTG_MAJOR_POSITION))
+            for i in drm_list
+        ]) & set(DTG_MAJOR_POSITION))))
 
-        rec['major_pos_list'] = drm_pos
-        rec['num_major_pos'] = len(drm_pos)
-        rec['pos_list'] = tuple(sorted([
+        rec['major_pos_list'] = major_pos_list
+        rec['num_major_pos'] = len(major_pos_list)
+
+        pos_list = tuple(sorted([
             m['pos']
-            for m in mut_list
+            for m in drm_list
         ]))
+        rec['pos_list'] = pos_list
+        rec['num_pos'] = len(pos_list)
 
     return group_records_by(drm_pattern, 'major_pos_list')
 
 
-def combine_drm_by_pos(patterns):
+def merge_drm_pattern_same_pos_list(drm_pattern):
+    # TODO define the difference between combine and merge
+
+    drm_pattern_group = defaultdict(list)
+
+    for drm_pos_list, patterns in drm_pattern:
+        patterns = combine_drm_by_same_pos_list(patterns)
+
+        drm_pattern_group[drm_pos_list] = patterns
+
+    return drm_pattern_group
+
+
+def combine_drm_by_same_pos_list(patterns):
 
     results = []
     for pos_list, pos_patterns in group_records_by(patterns, 'pos_list'):
@@ -319,8 +215,31 @@ def combine_drm_by_pos(patterns):
     return results
 
 
+def get_combined_pattern(pos_list, pos_patterns):
+    new_pattern = {
+        'pos_list': pos_list,
+        'num_pos': len(pos_list),
+    }
+
+    new_pattern['num_isolate'] = sum([
+        i['num_isolate']
+        for i in pos_patterns
+    ])
+    new_pattern['major_pos_list'] = pos_patterns[0]['major_pos_list']
+    new_pattern['num_major_pos'] = pos_patterns[0]['num_major_pos']
+
+    mut_pattern_list = [
+        i['drm_pattern']
+        for i in pos_patterns
+    ]
+
+    new_pattern['drm_pattern'] = combine_mutation_pattern(mut_pattern_list)
+
+    return new_pattern
+
+
 def has_major_pos_combined(new_pattern):
-    new_mut_list = parse_mut_str_list(new_pattern['pattern'])
+    new_mut_list = parse_mut_str_list(new_pattern['drm_pattern'])
 
     for mut in new_mut_list:
         if ((mut['pos'] in new_pattern['major_pos_list'])
@@ -330,208 +249,189 @@ def has_major_pos_combined(new_pattern):
     return False
 
 
-def get_combined_pattern(pos_list, pos_patterns):
-    new_pattern = {'pos_list': pos_list}
+def prepare_report(drm_pattern, pos_order):
 
-    new_pattern['num_isolate'] = sum([
-        i['num_isolate']
-        for i in pos_patterns
-    ])
-    new_pattern['major_pos_list'] = pos_patterns[0]['major_pos_list']
-    new_pattern['num_major_pos'] = pos_patterns[0]['num_major_pos']
+    report = []
 
-    mut_list = [
-        parse_mut_str_list(i['pattern'])
-        for i in pos_patterns
+    drm_pattern = [
+        k
+        for i, j in drm_pattern.items()
+        for k in j
     ]
-    new_mut_list = []
-    for pos in pos_list:
-        ref = list(set([
-            j['ref']
-            for i in mut_list
-            for j in i
-            if j['pos'] == pos
-        ]))[0]
-        muts = [
-            j['mut']
-            for i in mut_list
-            for j in i
-            if j['pos'] == pos
+
+    w_major_pos = [
+        i
+        for i in drm_pattern
+        if i['num_major_pos']
+    ]
+
+    prepare_w_major_pos(report, w_major_pos, pos_order)
+
+    wo_major_pos = [
+        i
+        for i in drm_pattern
+        if not i['num_major_pos']
+    ]
+
+    prepare_wo_major_pos(report, wo_major_pos, pos_order)
+
+    return report
+
+
+def prepare_w_major_pos(report, w_major_pos, pos_order):
+
+    w_major_pos = sorted(list(
+        group_records_by(w_major_pos, 'num_major_pos')),
+        key=lambda x: x[0]
+        )
+
+    for _, num_major_pos_list in w_major_pos:
+        num_major_pos_list = list(
+            group_records_by(num_major_pos_list, 'major_pos_list'))
+
+        num_major_pos_list.sort(
+            key=lambda x: min([
+                DTG_MAJOR_POSITION.index(i)
+                for i in x[0]
+            ]))
+
+        for major_pos, major_pos_list in num_major_pos_list:
+            major_pos_list.sort(key=lambda x: len(x['pos_list']))
+
+            [
+                rec.update({
+                    'drm_pattern': sort_pattern_pos(
+                        rec['drm_pattern'],
+                        pos_order)
+                })
+                for rec in major_pos_list
+            ]
+
+            sub_report = [{
+                    'drm_pattern': rec['drm_pattern'],
+                    'num_isolate': rec['num_isolate'],
+                    'major_pos': ','.join([f'{p}' for p in major_pos]),
+                }
+                for rec in major_pos_list
+            ]
+
+            show_sub_report(report, sub_report)
+
+
+def prepare_wo_major_pos(report, wo_major_pos, pos_order):
+
+    wo_major_pos = sorted(list(
+        group_records_by(wo_major_pos, 'num_pos')),
+        key=lambda x: x[0]
+        )
+
+    for _, num_pos_list in wo_major_pos:
+
+        [
+            rec.update({
+                'drm_pattern': sort_pattern_pos(
+                    rec['drm_pattern'], pos_order)
+            })
+            for rec in num_pos_list
         ]
-        new_mut_list.append({
-            'ref': ref,
-            'pos': pos,
-            'mut': ''.join(sorted(set(muts)))
-        })
-    new_pattern['pattern'] = bind_mut_str_list(new_mut_list)
 
-    return new_pattern
+        sub_report = [{
+                'drm_pattern': rec['drm_pattern'],
+                'num_isolate': rec['num_isolate'],
+                'major_pos': '',
+            }
+            for rec in num_pos_list
+        ]
 
-
-def merge_drm_pattern(drm_pattern):
-
-    drm_pattern_group = defaultdict(list)
-
-    for drm_pos_list, patterns in drm_pattern:
-        patterns = combine_drm_by_pos(patterns)
-
-        drm_pattern_group[drm_pos_list] = patterns
-
-    return drm_pattern_group
+        show_sub_report(report, sub_report)
 
 
-def sort_pattern_pos(pattern):
+def sort_pattern_pos(pattern, pos_order=[]):
 
     pattern = parse_mut_str_list(pattern)
+    pattern.sort(key=itemgetter('pos'))
     pattern.sort(
             key=lambda x:
-            (
-                DTG_MAJOR_POSITION + DTG_MINOR_POSITION + [x['pos']]
-            ).index(x['pos'])
+            pos_order.index(x['pos'])
         )
 
     return bind_mut_str_list(pattern)
 
 
-def prepare_report(drm_pattern):
-
-    report = []
-
-    for pos in DTG_MAJOR_POSITION:
-        for drm_pos_list, patterns in drm_pattern.items():
-            if pos not in drm_pos_list:
-                continue
-
-            [
-                rec.update({'pattern': sort_pattern_pos(rec['pattern'])})
-                for rec in patterns
-            ]
-            patterns.sort(key=lambda x: len(x['pos_list']))
-
-            sub_report = [{
-                    'pattern': rec['pattern'],
-                    'num_isolate': rec['num_isolate'],
-                }
-                for rec in patterns
-                if not rec.get('processed')
-            ]
-
-            [
-                rec.update({'processed': True})
-                for rec in patterns
-            ]
-
-            if sub_report:
-                show_sub_report(report, sub_report)
-
-    for drm_pos_list, patterns in drm_pattern.items():
-        for rec in patterns:
-            if rec.get('processed'):
-                continue
-            sub_report = [{
-                'pattern': rec['pattern'],
-                'num_isolate': rec['num_isolate'],
-            }]
-
-            show_sub_report(report, sub_report)
-
-    return report
-
-
 def show_sub_report(report, sub_report):
     report.extend(sub_report)
-    report.append({
-        'pattern': '----'
-    })
+    # report.append({
+    #     'drm_pattern': '----'
+    # })
 
 
-class SummaryReport:
+def get_pos_order(main_drm_list):
 
-    def __init__(self):
-        self.__dict__['summary'] = {}
+    pos_list = [
+        i['pos']
+        for i in main_drm_list['nonpolymorphic']
+        if i['pos'] not in DTG_MAJOR_POSITION
+    ]
+    pos_list = DTG_MAJOR_POSITION + pos_list + [
+        i['pos']
+        for i in main_drm_list['polymorphic']
+    ]
 
-    def __setattr__(self, name, value):
-        self.__dict__['summary'][name] = value
-
-    def table(self, prefix=''):
-
-        table = []
-        for k, v in self.__dict__['summary'].items():
-            table.append({
-                'item': f"{prefix}{'_' if prefix else ''}{k}",
-                'value': v
-            })
-
-        return table
-
-
-def collect_reference_info(table_raw):
-
-    report = SummaryReport()
-
-    report.num_paper = len(set([
-        (i['Author'], i['RefYear'], i['Journal'], i['MedlineID'])
-        for i in table_raw
-    ]))
-    report.num_isolate = len(table_raw)
-    report.num_patient = len(set([
-        i['PtID']
-        for i in table_raw
-    ]))
-    report.num_isolate_partial_mutation = len([
-        i
-        for i in table_raw
-        if i['CompleteMutationListAvailable'] == 'No'
-    ])
-    report.num_paper_partial_mutation = len(set([
-        (i['Author'], i['RefYear'], i['Journal'], i['MedlineID'])
-        for i in table_raw
-        if i['CompleteMutationListAvailable'] == 'No'
-    ]))
-
-    return report
+    return pos_list
 
 
 def work():
-    table_raw = load_tsv(WS / 'geno-rx.dataset.tsv')
+    table_raw = load_tsv(DB / 'geno-rx.dataset.tsv')
+    main_drm_list = load_main_drm(WS / 'mutations.yml')
 
-    table_major = [
+    table_raw = [
+        get_isolate_nonpoly_drm(i, main_drm_list)
+        for i in table_raw
+    ]
+
+    dump_csv(DB / DB_FOLDER / 'find_drm.csv', table_raw)
+
+    table_nonpoly = [
         i
         for i in table_raw
-        if isolate_has_major_mut(i)
+        if i['nonpoly_drms']
     ]
-    print(f'Including isolates with major DRMs: {len(table_major)}')
+
+    print(f'Including isolates with nonpoly DRMs: {len(table_nonpoly)}')
     print('*' * 20)
 
-    report = collect_reference_info(table_raw).table()
-    report += collect_reference_info(table_major).table('W_DRM')
-
-    dump_csv(WS / 'reference_info.csv', report)
+    report_raw = collect_reference_info(table_raw)
+    report_nonpoly = collect_reference_info(table_nonpoly)
 
     isolates = []
-
-    for _, pt_iso_list in group_records_by(table_major, 'PtID'):
+    pt_multiple_isolate = 0
+    for _, pt_iso_list in group_records_by(table_nonpoly, 'PtID'):
         if len(pt_iso_list) == 1:
-            pt_iso_list = [
-                prorcess_mixture(i, 'if_has_ref_ignore_ref')
-                for i in pt_iso_list
-            ]
             isolates.extend(pt_iso_list)
         else:
-            isolates.extend(merge_invivo_muts(pt_iso_list))
+            pt_multiple_isolate += 1
+            isolates.extend(get_patient_unique_mutation(pt_iso_list))
 
+    report_nonpoly.patient_with_multiple_isolate = pt_multiple_isolate
+
+    report = report_raw.table() + report_nonpoly.table('W_DRM')
+
+    dump_csv(DB / DB_FOLDER / 'reference_info.csv', report)
     print(f'Isolates after removing duplication: {len(isolates)}')
     print('*' * 20)
-    dump_csv(WS / 'unique_isolates.csv', isolates)
 
-    isolates = adapt_drm_pos_mut(isolates)
-    drm_pattern = group_by_drm_pattern(isolates)
+    dump_csv(DB / DB_FOLDER / 'unique_isolates.csv', isolates)
+
+    drm_pattern = count_drm_pattern_num_isolate(isolates)
 
     drm_pattern = group_by_major_pos(drm_pattern)
 
-    drm_pattern = merge_drm_pattern(drm_pattern)
+    drm_pattern = merge_drm_pattern_same_pos_list(drm_pattern)
 
-    dump_csv(WS / 'pathway.csv', prepare_report(drm_pattern))
+    pos_order = get_pos_order(main_drm_list)
+    report = prepare_report(drm_pattern, pos_order)
+
+    dump_csv(DB / DB_FOLDER / 'table 1.csv', report)
 
     print('Finish.')
 
