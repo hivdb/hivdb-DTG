@@ -13,12 +13,11 @@ from preset.table import group_records_by
 from preset.mutation_ops import combine_mutation_pattern
 from preset.report import SummaryReport
 from collections import OrderedDict
+from preset.geno_pheno import get_geno_pheno
 
 
 WS = Path(__file__).resolve().parent
-DB = Path(__file__).resolve().parent / 'database'
-DB_FOLDER = 'Apr 24, 2023'
-
+DB = Path(__file__).resolve().parent / 'database' / 'Archive'
 
 DTG_MAJOR_POSITION = [
     118,
@@ -380,7 +379,7 @@ def get_pos_order(main_drm_list):
     return pos_list
 
 
-def work():
+def geno_analysis():
     table_raw = load_tsv(DB / 'geno-rx.dataset.tsv')
     main_drm_list = load_main_drm(WS / 'mutations.yml')
 
@@ -389,7 +388,7 @@ def work():
         for i in table_raw
     ]
 
-    dump_csv(DB / DB_FOLDER / 'find_drm.csv', table_raw)
+    dump_csv(DB / 'Apr 24, 2023' / 'find_drm.csv', table_raw)
 
     table_nonpoly = [
         i
@@ -416,11 +415,11 @@ def work():
 
     report = report_raw.table() + report_nonpoly.table('W_DRM')
 
-    dump_csv(DB / DB_FOLDER / 'reference_info.csv', report)
+    dump_csv(DB / 'Apr 24, 2023' / 'reference_info.csv', report)
     print(f'Isolates after removing duplication: {len(isolates)}')
     print('*' * 20)
 
-    dump_csv(DB / DB_FOLDER / 'unique_isolates.csv', isolates)
+    dump_csv(DB / 'Apr 24, 2023' / 'unique_isolates.csv', isolates)
 
     drm_pattern = count_drm_pattern_num_isolate(isolates)
 
@@ -431,10 +430,14 @@ def work():
     pos_order = get_pos_order(main_drm_list)
     report = prepare_report(drm_pattern, pos_order)
 
-    dump_csv(DB / DB_FOLDER / 'table 1.csv', report)
+    dump_csv(DB / 'Apr 24, 2023' / 'table 1.csv', report)
 
-    print('Finish.')
+
+def work():
+    get_geno_pheno(
+        DB / 'May 30, 2023', DB / 'May 30, 2023' / 'geno_rx_pheno.csv')
 
 
 if __name__ == '__main__':
     work()
+    print('Finish.')

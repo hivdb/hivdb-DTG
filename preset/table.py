@@ -19,5 +19,4 @@ def group_records_by(records, group_key_list):
 
         group_result[primary_key].append(r)
 
-    for k, v in group_result.items():
-        yield k, v
+    return group_result
