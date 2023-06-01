@@ -141,7 +141,7 @@ def get_patient_unique_mutation(pt_iso_list):
 
     selected_pattern = []
 
-    for drm_pattern, rec_list in group_records_by(pt_iso_list, 'drms'):
+    for drm_pattern, rec_list in group_records_by(pt_iso_list, 'drms').items():
         selected_pattern.append(rec_list[0])
 
     print(
@@ -158,7 +158,7 @@ def count_drm_pattern_num_isolate(isolates):
             'drm_pattern': k,
             'num_isolate': len(v)
         }
-        for k, v in group_records_by(isolates, 'drms')
+        for k, v in group_records_by(isolates, 'drms').items()
     ]
     return drm_pattern
 
@@ -202,7 +202,7 @@ def merge_drm_pattern_same_pos_list(drm_pattern):
 def combine_drm_by_same_pos_list(patterns):
 
     results = []
-    for pos_list, pos_patterns in group_records_by(patterns, 'pos_list'):
+    for pos_list, pos_patterns in group_records_by(patterns, 'pos_list').items():
         new_pattern = get_combined_pattern(pos_list, pos_patterns)
 
         if not has_major_pos_combined(new_pattern):
@@ -280,13 +280,13 @@ def prepare_report(drm_pattern, pos_order):
 def prepare_w_major_pos(report, w_major_pos, pos_order):
 
     w_major_pos = sorted(list(
-        group_records_by(w_major_pos, 'num_major_pos')),
+        group_records_by(w_major_pos, 'num_major_pos').items()),
         key=lambda x: x[0]
         )
 
     for _, num_major_pos_list in w_major_pos:
         num_major_pos_list = list(
-            group_records_by(num_major_pos_list, 'major_pos_list'))
+            group_records_by(num_major_pos_list, 'major_pos_list').items())
 
         num_major_pos_list.sort(
             key=lambda x: min([
@@ -320,7 +320,7 @@ def prepare_w_major_pos(report, w_major_pos, pos_order):
 def prepare_wo_major_pos(report, wo_major_pos, pos_order):
 
     wo_major_pos = sorted(list(
-        group_records_by(wo_major_pos, 'num_pos')),
+        group_records_by(wo_major_pos, 'num_pos').items()),
         key=lambda x: x[0]
         )
 
@@ -354,7 +354,7 @@ def sort_pattern_pos(pattern, pos_order=[]):
             pos_order.index(x['pos'])
         )
 
-    return bind_mut_str_list(pattern)
+    return bind_mut_str_list(pattern, join_str=' + ')
 
 
 def show_sub_report(report, sub_report):
@@ -379,8 +379,10 @@ def get_pos_order(main_drm_list):
     return pos_list
 
 
-def geno_analysis():
-    table_raw = load_tsv(DB / 'geno-rx.dataset.tsv')
+def geno_analysis(
+        geno_file=DB / 'geno-rx.dataset.tsv',
+        folder=DB / 'Apr 24, 2023'):
+    table_raw = load_tsv(geno_file)
     main_drm_list = load_main_drm(WS / 'mutations.yml')
 
     table_raw = [
@@ -388,7 +390,7 @@ def geno_analysis():
         for i in table_raw
     ]
 
-    dump_csv(DB / 'Apr 24, 2023' / 'find_drm.csv', table_raw)
+    dump_csv(folder / 'find_drm.csv', table_raw)
 
     table_nonpoly = [
         i
@@ -404,7 +406,7 @@ def geno_analysis():
 
     isolates = []
     pt_multiple_isolate = 0
-    for _, pt_iso_list in group_records_by(table_nonpoly, 'PtID'):
+    for _, pt_iso_list in group_records_by(table_nonpoly, 'PtID').items():
         if len(pt_iso_list) == 1:
             isolates.extend(pt_iso_list)
         else:
@@ -415,27 +417,30 @@ def geno_analysis():
 
     report = report_raw.table() + report_nonpoly.table('W_DRM')
 
-    dump_csv(DB / 'Apr 24, 2023' / 'reference_info.csv', report)
+    dump_csv(folder / 'reference_info.csv', report)
     print(f'Isolates after removing duplication: {len(isolates)}')
     print('*' * 20)
 
-    dump_csv(DB / 'Apr 24, 2023' / 'unique_isolates.csv', isolates)
+    dump_csv(folder / 'unique_isolates.csv', isolates)
 
     drm_pattern = count_drm_pattern_num_isolate(isolates)
 
-    drm_pattern = group_by_major_pos(drm_pattern)
+    drm_pattern = group_by_major_pos(drm_pattern).items()
 
     drm_pattern = merge_drm_pattern_same_pos_list(drm_pattern)
 
     pos_order = get_pos_order(main_drm_list)
     report = prepare_report(drm_pattern, pos_order)
 
-    dump_csv(DB / 'Apr 24, 2023' / 'table 1.csv', report)
+    dump_csv(folder / 'table 1.csv', report)
 
 
 def work():
-    get_geno_pheno(
-        DB / 'May 30, 2023', DB / 'May 30, 2023' / 'geno_rx_pheno.csv')
+    # get_geno_pheno(
+    #     DB / 'May 30, 2023', DB / 'May 30, 2023' / 'geno_rx_pheno.csv')
+    geno_analysis(
+        geno_file=DB / 'Jun 1, 2023' / 'geno-rx.dataset.tsv',
+        folder=DB / 'Jun 1, 2023')
 
 
 if __name__ == '__main__':

@@ -11,7 +11,7 @@ def combine_mutation_pattern(mut_pattern_list):
     ]
 
     new_mut_list = []
-    for pos, pos_list in group_records_by(mut_list, 'pos'):
+    for pos, pos_list in group_records_by(mut_list, 'pos').items():
         ref = list(set([
             i['ref']
             for i in pos_list

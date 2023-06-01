@@ -21,9 +21,9 @@ def parse_mut_str(mut_str):
     return dict(zip(['ref', 'pos', 'mut'], match))
 
 
-def bind_mut_str_list(mutations):
+def bind_mut_str_list(mutations, join_str=','):
 
-    return ', '.join([
+    return join_str.join([
         bind_mut_str(i)
         for i in mutations
     ])
