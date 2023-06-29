@@ -2,10 +2,11 @@
 from pathlib import Path
 from collections import defaultdict
 from operator import itemgetter
-from pprint import pprint
+# from pprint import pprint
 from preset.file_formats import load_tsv
 from preset.file_formats import load_yaml
 from preset.file_formats import dump_csv
+from preset.file_formats import load_csv
 from preset.mutation_literal import parse_mut_str_list
 from preset.mutation_literal import parse_mut_str
 from preset.mutation_literal import bind_mut_str_list
@@ -69,6 +70,33 @@ def collect_reference_info(table_raw):
         for i in table_raw
         if i['CompleteMutationListAvailable'] == 'No'
     ]))
+
+    return report
+
+
+def collect_reference_meta(table_raw, table_meta):
+
+    report = SummaryReport()
+
+    continents = {
+        (i['Author'], i['RefYear']): i['Continent']
+        for i in table_meta
+    }
+
+    categories = {
+        (i['Author'], i['RefYear']): i['Category']
+        for i in table_meta
+    }
+
+    for i in table_raw:
+        i['continent'] = continents[(i['Author'], i['RefYear'])]
+        i['category'] = categories[(i['Author'], i['RefYear'])]
+
+    for cont, cont_list in group_records_by(table_raw, 'continent').items():
+        setattr(report, cont, len(cont_list))
+
+    for cat, cat_list in group_records_by(table_raw, 'category').items():
+        setattr(report, cat, len(cat_list))
 
     return report
 
@@ -137,7 +165,7 @@ def find_drm_from_mutation(mut, drm_list):
     return matched_drm
 
 
-def get_patient_unique_mutation(pt_iso_list):
+def get_patient_unique_mutation(pt_iso_list, one_per_person=False):
 
     selected_pattern = []
 
@@ -148,7 +176,11 @@ def get_patient_unique_mutation(pt_iso_list):
         f"Get unique mutation pattern from PtID {pt_iso_list[0]['PtID']}:"
         f" {len(selected_pattern)}/{len(pt_iso_list)}")
 
-    return selected_pattern
+    if one_per_person:
+        selected_pattern.sort(key=lambda x: len(parse_mut_str_list(x['drms'])))
+        return selected_pattern[-1:]
+    else:
+        return selected_pattern
 
 
 def count_drm_pattern_num_isolate(isolates):
@@ -379,11 +411,10 @@ def get_pos_order(main_drm_list):
     return pos_list
 
 
-def geno_analysis(
-        geno_file=DB / 'geno-rx.dataset.tsv',
-        folder=DB / 'Apr 24, 2023'):
+def geno_analysis(geno_file, folder, meta):
     table_raw = load_tsv(geno_file)
     main_drm_list = load_main_drm(WS / 'mutations.yml')
+    table_meta = load_csv(meta)
 
     table_raw = [
         get_isolate_nonpoly_drm(i, main_drm_list)
@@ -411,11 +442,15 @@ def geno_analysis(
             isolates.extend(pt_iso_list)
         else:
             pt_multiple_isolate += 1
-            isolates.extend(get_patient_unique_mutation(pt_iso_list))
+            isolates.extend(get_patient_unique_mutation(pt_iso_list, True))
 
     report_nonpoly.patient_with_multiple_isolate = pt_multiple_isolate
 
-    report = report_raw.table() + report_nonpoly.table('W_DRM')
+    report_meta = collect_reference_meta(isolates, table_meta)
+
+    report = report_raw.table() + \
+        report_nonpoly.table('W_DRM') + \
+        report_meta.table()
 
     dump_csv(folder / 'reference_info.csv', report)
     print(f'Isolates after removing duplication: {len(isolates)}')
@@ -439,8 +474,9 @@ def work():
     # get_geno_pheno(
     #     DB / 'May 30, 2023', DB / 'May 30, 2023' / 'geno_rx_pheno.csv')
     geno_analysis(
-        geno_file=DB / 'Jun 1, 2023' / 'geno-rx.dataset.tsv',
-        folder=DB / 'Jun 1, 2023')
+        geno_file=DB / 'Jun 28, 2023' / 'geno-rx.dataset.tsv',
+        folder=DB / 'Jun 28, 2023',
+        meta=DB / 'Jun 28, 2023' / 'paper_meta.csv')
 
 
 if __name__ == '__main__':
