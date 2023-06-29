@@ -333,7 +333,7 @@ def prepare_w_major_pos(report, w_major_pos, pos_order):
                 rec.update({
                     'drm_pattern': sort_pattern_pos(
                         rec['drm_pattern'],
-                        pos_order)
+                        rec['major_pos_list'])
                 })
                 for rec in major_pos_list
             ]
@@ -341,12 +341,29 @@ def prepare_w_major_pos(report, w_major_pos, pos_order):
             sub_report = [{
                     'drm_pattern': rec['drm_pattern'],
                     'num_isolate': rec['num_isolate'],
-                    'major_pos': ','.join([f'{p}' for p in major_pos]),
+                    'major_pos_list': ', '.join([f'{p}' for p in major_pos]),
+                    'num_pos': rec['num_pos'],
+                    'pos_list': join_list_str(rec['pos_list'], gap=True),
+                    # TODO: a column contains a list of integers, how to sort them in text format?
                 }
                 for rec in major_pos_list
             ]
 
             show_sub_report(report, sub_report)
+
+
+def join_list_str(a_list=[], delimiter=',', gap=False):
+    if gap:
+        delimiter = f'{delimiter} '
+
+    return delimiter.join([str(i) for i in a_list])
+
+
+def split_list_str(a_list_str, delimiter=',', vtype=str):
+
+    return [
+        vtype(i.strip())
+        for i in a_list_str.split(delimiter)]
 
 
 def prepare_wo_major_pos(report, wo_major_pos, pos_order):
@@ -369,7 +386,9 @@ def prepare_wo_major_pos(report, wo_major_pos, pos_order):
         sub_report = [{
                 'drm_pattern': rec['drm_pattern'],
                 'num_isolate': rec['num_isolate'],
-                'major_pos': '',
+                'major_pos_list': '',
+                'num_pos': rec['num_pos'],
+                'pos_list': join_list_str(rec['pos_list'], gap=True),
             }
             for rec in num_pos_list
         ]
@@ -378,12 +397,13 @@ def prepare_wo_major_pos(report, wo_major_pos, pos_order):
 
 
 def sort_pattern_pos(pattern, pos_order=[]):
+    pos_order = list(pos_order)
 
     pattern = parse_mut_str_list(pattern)
     pattern.sort(key=itemgetter('pos'))
     pattern.sort(
             key=lambda x:
-            pos_order.index(x['pos'])
+            (pos_order + [x['pos']]).index(x['pos'])
         )
 
     return bind_mut_str_list(pattern, join_str=' + ')
@@ -466,6 +486,17 @@ def geno_analysis(geno_file, folder, meta):
 
     pos_order = get_pos_order(main_drm_list)
     report = prepare_report(drm_pattern, pos_order)
+
+    report.sort(
+        key=lambda x:
+            [
+                x['major_pos_list'],
+                x['num_pos'],
+                -x['num_isolate']
+            ] +
+            sorted(split_list_str(x['pos_list'], vtype=int))
+        )
+    # TIP: fix the order of sorted list, if the num isolate is the same
 
     dump_csv(folder / 'table 1.csv', report)
 
