@@ -24,3 +24,6 @@ polymorphic:
   - T97A
   - E157Q
   - G163RK
+_potentials:
+  - V151I
+  - A49G
