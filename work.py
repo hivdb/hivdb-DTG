@@ -15,6 +15,7 @@ from preset.mutation_ops import combine_mutation_pattern
 from preset.report import SummaryReport
 from collections import OrderedDict
 from preset.geno_pheno import get_geno_pheno
+from datetime import datetime
 
 
 WS = Path(__file__).resolve().parent
@@ -72,6 +73,34 @@ def collect_reference_info(table_raw):
     ]))
 
     return report
+
+
+def collect_rx_info(table_raw, table_rx):
+
+    pt_rx = {}
+
+    for ptid, rx_list in group_records_by(table_rx, 'PtID').items():
+        [
+            i.update({
+                'StopDate': datetime.strptime(i['StopDate'], "%Y-%m-%d")})
+            for i in rx_list
+        ]
+        pt_rx[ptid] = rx_list
+
+    for i in table_raw:
+        ptid = i['PtID']
+        isolateDate = datetime.strptime(i['IsolateDate'], "%Y-%m-%d")
+        rx_list = pt_rx[ptid]
+        rx_list = [
+            i
+            for i in rx_list
+            if i['StopDate'] <= isolateDate
+        ]
+        rx_list.sort(key=itemgetter('StopDate'))
+        i['Rx'] = '\n'.join([
+            i['RegimenName']
+            for i in rx_list
+        ])
 
 
 def collect_reference_meta(table_raw, table_meta):
@@ -165,7 +194,7 @@ def find_drm_from_mutation(mut, drm_list):
     return matched_drm
 
 
-def get_patient_unique_mutation(pt_iso_list, one_per_person=False):
+def get_patient_unique_mutation(pt_iso_list, one_per_person=True):
 
     selected_pattern = []
 
@@ -431,10 +460,11 @@ def get_pos_order(main_drm_list):
     return pos_list
 
 
-def geno_analysis(geno_file, folder, meta):
+def geno_analysis(geno_file, folder, meta, rx):
     table_raw = load_tsv(geno_file)
     main_drm_list = load_main_drm(WS / 'mutations.yml')
     table_meta = load_csv(meta)
+    table_rx_history = load_csv(rx)
 
     table_raw = [
         get_isolate_nonpoly_drm(i, main_drm_list)
@@ -467,6 +497,7 @@ def geno_analysis(geno_file, folder, meta):
     report_nonpoly.patient_with_multiple_isolate = pt_multiple_isolate
 
     report_meta = collect_reference_meta(isolates, table_meta)
+    report_rx = collect_rx_info(isolates, table_rx_history)
 
     report = report_raw.table() + \
         report_nonpoly.table('W_DRM') + \
@@ -507,7 +538,8 @@ def work():
     geno_analysis(
         geno_file=DB / 'Jun 28, 2023' / 'geno-rx.dataset.tsv',
         folder=DB / 'Jun 28, 2023',
-        meta=DB / 'Jun 28, 2023' / 'paper_meta.csv')
+        meta=DB / 'Jun 28, 2023' / 'paper_meta.csv',
+        rx=DB / 'Jun 28, 2023' / 'tblRxHistory.csv')
 
 
 if __name__ == '__main__':
