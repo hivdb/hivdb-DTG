@@ -16,7 +16,8 @@ from preset.report import SummaryReport
 from collections import OrderedDict
 from preset.geno_pheno import get_geno_pheno
 from datetime import datetime
-
+from itertools import combinations
+from copy import deepcopy
 
 WS = Path(__file__).resolve().parent
 DB = Path(__file__).resolve().parent / 'database' / 'Archive'
@@ -140,7 +141,7 @@ def load_main_drm(path):
         main_drm_list[category] = drm_list
 
     main_drm_list['nonpolymorphic'] = (
-        main_drm_list['SDRM'] + main_drm_list['nonpolymorphic'])
+        main_drm_list.get('SDRM', []) + main_drm_list['nonpolymorphic'])
 
     return main_drm_list
 
@@ -532,14 +533,113 @@ def geno_analysis(geno_file, folder, meta, rx):
     dump_csv(folder / 'table 1.csv', report)
 
 
+def odd_ratio_analysis(file_path, mixture=False, by_pos=False):
+    table = load_csv(file_path)
+    drms = [
+        i['drms']
+        for i in table
+    ]
+
+    if not mixture:
+        drms = [
+            bind_mut_str_list(
+                [j for j in parse_mut_str_list(i) if len(j['mut']) == 1])
+            for i in drms
+        ]
+
+    drms = [
+        [i.strip() for i in i.split(',')]
+        for i in drms
+    ]
+    muts = set([
+        j
+        for i in drms
+        for j in i
+    ])
+    result_table = defaultdict(dict)
+
+    # TODO: a table for string index, contingency table
+    for i in muts:
+        result_table[i] = {
+            i: 0
+            for i in muts
+        }
+
+    for i in drms:
+        for j in i:
+            result_table[j][j] += 1
+        for j, k in combinations(i, 2):
+            result_table[j][k] += 1
+            result_table[k][j] += 1
+
+    result_table2 = []
+    for i, j in result_table.items():
+        j = deepcopy(j)
+        j.update({'name': i})
+        result_table2.append(j)
+
+    dump_csv(file_path.parent / 'cross_table.csv', result_table2)
+
+    cont_tables = {}
+
+    total = len(drms)
+
+    main_drm_list = load_main_drm(WS / 'mutations.yml')
+
+    for i, v in result_table.items():
+        for j, both in v.items():
+            if i == j:
+                continue
+            # if (i, j) in cont_tables:
+            #     continue
+            # if (j, i) in cont_tables:
+            #     continue
+
+            # if i not in main_drm_list:
+            #     j, i = i, j
+
+            both = result_table[i][j]
+            total_i = result_table[i][i]
+            total_j = result_table[j][j]
+            only_i = total_i - both
+            only_j = total_j - both
+            none = total - both - only_i - only_j
+            try:
+                r_ratio = (both / total_i) / (only_j / (only_j + none))
+            except ZeroDivisionError:
+                r_ratio = 'inf'
+
+            try:
+                odd_ratio = (both / only_i) / (only_j / none)
+            except ZeroDivisionError:
+                odd_ratio = 'inf'
+
+            cont_tables[(i, j)] = {
+                'MutA': i,
+                'PosA': parse_mut_str(i)['pos'],
+                'MutB': j,
+                'PosA': parse_mut_str(j)['pos'],
+                'Both': both,
+                'MutA_only': only_i,
+                'MutB_only': only_j,
+                'None': none,
+                'relative_ratio': r_ratio,
+                'odds_ratio': odd_ratio,
+            }
+
+    dump_csv(file_path.parent / 'ratio.csv', list(cont_tables.values()))
+
+
 def work():
     # get_geno_pheno(
     #     DB / 'May 30, 2023', DB / 'May 30, 2023' / 'geno_rx_pheno.csv')
-    geno_analysis(
-        geno_file=DB / 'Jun 28, 2023' / 'geno-rx.dataset.tsv',
-        folder=DB / 'Jun 28, 2023',
-        meta=DB / 'Jun 28, 2023' / 'paper_meta.csv',
-        rx=DB / 'Jun 28, 2023' / 'tblRxHistory.csv')
+    # geno_analysis(
+    #     geno_file=DB / 'Jul 13, 2023' / 'geno-rx.dataset.tsv',
+    #     folder=DB / 'Jul 13, 2023',
+    #     meta=DB / 'Jul 13, 2023' / 'paper_meta.csv',
+    #     rx=DB / 'Jul 13, 2023' / 'tblRxHistory.csv')
+
+    odd_ratio_analysis(DB / 'Jul 13, 2023'/ 'unique_isolates.csv')
 
 
 if __name__ == '__main__':

@@ -1,4 +1,6 @@
-SDRM:
+# SDRM:
+nonpolymorphic:
+  - H51Y
   - T66AIK
   - E92GQ
   - G118R
@@ -8,22 +10,20 @@ SDRM:
   - Y143CHRS
   - S147G
   - Q148HRK
+  - S153YF
   - N155H
   - S230R
   - R263K
-nonpolymorphic:
-  - H51Y
-  - Q95K
-  - G149A
-  - S153YF
-  - N155ST
-  - D232N
 polymorphic:
   - M50I
   - L74IM
+  - Q95K
   - T97A
+  - G149A
   - E157Q
   - G163RK
+  - D232N
 _potentials:
   - V151I
   - A49G
+  - N155ST
