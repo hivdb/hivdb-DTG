@@ -18,6 +18,8 @@ from preset.geno_pheno import get_geno_pheno
 from datetime import datetime
 from itertools import combinations
 from copy import deepcopy
+from scipy import stats
+
 
 WS = Path(__file__).resolve().parent
 DB = Path(__file__).resolve().parent / 'database' / 'Archive'
@@ -586,6 +588,7 @@ def odd_ratio_analysis(file_path, mixture=False, by_pos=False):
 
     main_drm_list = load_main_drm(WS / 'mutations.yml')
 
+
     for i, v in result_table.items():
         for j, both in v.items():
             if i == j:
@@ -597,6 +600,10 @@ def odd_ratio_analysis(file_path, mixture=False, by_pos=False):
 
             # if i not in main_drm_list:
             #     j, i = i, j
+            posA = parse_mut_str(i)['pos']
+            posB = parse_mut_str(j)['pos']
+            if posA > posB:
+                continue
 
             both = result_table[i][j]
             total_i = result_table[i][i]
@@ -604,30 +611,39 @@ def odd_ratio_analysis(file_path, mixture=False, by_pos=False):
             only_i = total_i - both
             only_j = total_j - both
             none = total - both - only_i - only_j
-            try:
-                r_ratio = (both / total_i) / (only_j / (only_j + none))
-            except ZeroDivisionError:
-                r_ratio = 'inf'
 
-            try:
-                odd_ratio = (both / only_i) / (only_j / none)
-            except ZeroDivisionError:
-                odd_ratio = 'inf'
+            x = [1] * both + [1] * only_i + [0] * only_j + [0] * none
+            y = [1] * both + [0] * only_i + [1] * only_j + [0] * none
 
-            cont_tables[(i, j)] = {
+            sp = stats.spearmanr(x, y)
+            # try:
+            #     r_ratio = (both / total_i) / (only_j / (only_j + none))
+            # except ZeroDivisionError:
+            #     r_ratio = 'inf'
+
+            # try:
+            #     odd_ratio = (both / only_i) / (only_j / none)
+            # except ZeroDivisionError:
+            #     odd_ratio = 'inf'
+
+            resp = {
                 'MutA': i,
                 'PosA': parse_mut_str(i)['pos'],
                 'MutB': j,
-                'PosA': parse_mut_str(j)['pos'],
+                'PosB': parse_mut_str(j)['pos'],
                 'Both': both,
                 'MutA_only': only_i,
                 'MutB_only': only_j,
                 'None': none,
-                'relative_ratio': r_ratio,
-                'odds_ratio': odd_ratio,
+                'spearman_rho': sp.statistic,
+                'spearman_pvalue': 0.001 if sp.pvalue < 0.001 else sp.pvalue,
+                # 'relative_ratio': r_ratio,
+                # 'odds_ratio': odd_ratio,
             }
 
-    dump_csv(file_path.parent / 'ratio.csv', list(cont_tables.values()))
+            cont_tables[(i, j)] = resp
+
+    dump_csv(file_path.parent / 'mutation_coexist.csv', list(cont_tables.values()))
 
 
 def work():
@@ -639,7 +655,7 @@ def work():
     #     meta=DB / 'Jul 13, 2023' / 'paper_meta.csv',
     #     rx=DB / 'Jul 13, 2023' / 'tblRxHistory.csv')
 
-    odd_ratio_analysis(DB / 'Jul 13, 2023'/ 'unique_isolates.csv')
+    odd_ratio_analysis(DB / 'Jul 13, 2023' / 'unique_isolates.csv')
 
 
 if __name__ == '__main__':
