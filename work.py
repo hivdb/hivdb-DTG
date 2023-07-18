@@ -616,6 +616,7 @@ def odd_ratio_analysis(file_path, mixture=False, by_pos=False):
             y = [1] * both + [0] * only_i + [1] * only_j + [0] * none
 
             sp = stats.spearmanr(x, y)
+            jaccard = both / (both + only_i + only_j)
             # try:
             #     r_ratio = (both / total_i) / (only_j / (only_j + none))
             # except ZeroDivisionError:
@@ -637,6 +638,7 @@ def odd_ratio_analysis(file_path, mixture=False, by_pos=False):
                 'None': none,
                 'spearman_rho': sp.statistic,
                 'spearman_pvalue': 0.001 if sp.pvalue < 0.001 else sp.pvalue,
+                'jaccard': round(jaccard, 2),
                 # 'relative_ratio': r_ratio,
                 # 'odds_ratio': odd_ratio,
             }
