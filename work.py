@@ -13,12 +13,14 @@ from preset.mutation_literal import bind_mut_str_list
 from preset.table import group_records_by
 from preset.mutation_ops import combine_mutation_pattern
 from preset.report import SummaryReport
-from collections import OrderedDict
-from preset.geno_pheno import get_geno_pheno
+# from preset.geno_pheno import get_geno_pheno
 from datetime import datetime
+from preset.statistics import get_binary_mark_list
+from preset.statistics import calc_contigency_table
+from preset.statistics import calc_jaccard
+from preset.statistics import calc_spearman
 from itertools import combinations
-from copy import deepcopy
-from scipy import stats
+from preset.statistics import calc_holm_Bonferroni
 
 
 WS = Path(__file__).resolve().parent
@@ -535,7 +537,7 @@ def geno_analysis(geno_file, folder, meta, rx):
     dump_csv(folder / 'table 1.csv', report)
 
 
-def odd_ratio_analysis(file_path, mixture=False, by_pos=False):
+def coevol_analysis(file_path, mixture=False, by_pos=False):
     table = load_csv(file_path)
     drms = [
         i['drms']
@@ -553,99 +555,51 @@ def odd_ratio_analysis(file_path, mixture=False, by_pos=False):
         [i.strip() for i in i.split(',')]
         for i in drms
     ]
-    muts = set([
-        j
-        for i in drms
-        for j in i
-    ])
-    result_table = defaultdict(dict)
 
-    # TODO: a table for string index, contingency table
-    for i in muts:
-        result_table[i] = {
-            i: 0
-            for i in muts
+    print('# seq', len(drms))
+    # main_drm_list = load_main_drm(WS / 'mutations.yml')
+
+    binary_list = get_binary_mark_list(drms)
+
+    mutations = list(binary_list.keys())
+
+    result = []
+
+    for i, j in combinations(mutations, 2):
+
+        posA = parse_mut_str(i)['pos']
+        posB = parse_mut_str(j)['pos']
+        if posA > posB:
+            continue
+
+        print(posA, posB)
+
+        listA = binary_list[i]
+        listB = binary_list[j]
+
+        spearman = calc_spearman(listA, listB)
+        jaccard = calc_jaccard(listA, listB)
+        contigency = calc_contigency_table(listA, listB)
+
+        resp = {
+            'MutA': i,
+            'PosA': posA,
+            'MutB': j,
+            'PosB': posB,
+            'Both': contigency['both'],
+            'MutA_only': contigency['i_only'],
+            'MutB_only': contigency['j_only'],
+            'None': contigency['none'],
         }
+        resp.update(spearman)
+        resp.update(jaccard)
 
-    for i in drms:
-        for j in i:
-            result_table[j][j] += 1
-        for j, k in combinations(i, 2):
-            result_table[j][k] += 1
-            result_table[k][j] += 1
+        result.append(resp)
 
-    result_table2 = []
-    for i, j in result_table.items():
-        j = deepcopy(j)
-        j.update({'name': i})
-        result_table2.append(j)
+    result = calc_holm_Bonferroni(result, 'spearman_p_value', 0.05)
+    result = calc_holm_Bonferroni(result, 'jaccard_p_value', 0.05)
 
-    dump_csv(file_path.parent / 'cross_table.csv', result_table2)
-
-    cont_tables = {}
-
-    total = len(drms)
-
-    main_drm_list = load_main_drm(WS / 'mutations.yml')
-
-
-    for i, v in result_table.items():
-        for j, both in v.items():
-            if i == j:
-                continue
-            # if (i, j) in cont_tables:
-            #     continue
-            # if (j, i) in cont_tables:
-            #     continue
-
-            # if i not in main_drm_list:
-            #     j, i = i, j
-            posA = parse_mut_str(i)['pos']
-            posB = parse_mut_str(j)['pos']
-            if posA > posB:
-                continue
-
-            both = result_table[i][j]
-            total_i = result_table[i][i]
-            total_j = result_table[j][j]
-            only_i = total_i - both
-            only_j = total_j - both
-            none = total - both - only_i - only_j
-
-            x = [1] * both + [1] * only_i + [0] * only_j + [0] * none
-            y = [1] * both + [0] * only_i + [1] * only_j + [0] * none
-
-            sp = stats.spearmanr(x, y)
-            jaccard = both / (both + only_i + only_j)
-            # try:
-            #     r_ratio = (both / total_i) / (only_j / (only_j + none))
-            # except ZeroDivisionError:
-            #     r_ratio = 'inf'
-
-            # try:
-            #     odd_ratio = (both / only_i) / (only_j / none)
-            # except ZeroDivisionError:
-            #     odd_ratio = 'inf'
-
-            resp = {
-                'MutA': i,
-                'PosA': parse_mut_str(i)['pos'],
-                'MutB': j,
-                'PosB': parse_mut_str(j)['pos'],
-                'Both': both,
-                'MutA_only': only_i,
-                'MutB_only': only_j,
-                'None': none,
-                'spearman_rho': sp.statistic,
-                'spearman_pvalue': 0.001 if sp.pvalue < 0.001 else sp.pvalue,
-                'jaccard': round(jaccard, 2),
-                # 'relative_ratio': r_ratio,
-                # 'odds_ratio': odd_ratio,
-            }
-
-            cont_tables[(i, j)] = resp
-
-    dump_csv(file_path.parent / 'mutation_coexist.csv', list(cont_tables.values()))
+    dump_csv(file_path.parent / 'mutation_coexist.csv', result)
 
 
 def work():
@@ -657,7 +611,7 @@ def work():
     #     meta=DB / 'Jul 13, 2023' / 'paper_meta.csv',
     #     rx=DB / 'Jul 13, 2023' / 'tblRxHistory.csv')
 
-    odd_ratio_analysis(DB / 'Jul 13, 2023' / 'unique_isolates.csv')
+    coevol_analysis(DB / 'Jul 13, 2023' / 'unique_isolates.csv')
 
 
 if __name__ == '__main__':
