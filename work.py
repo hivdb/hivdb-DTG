@@ -21,6 +21,8 @@ from preset.statistics import calc_jaccard
 from preset.statistics import calc_spearman
 from itertools import combinations
 from preset.statistics import calc_holm_Bonferroni
+import igraph as ig
+from pyvis.network import Network
 
 
 WS = Path(__file__).resolve().parent
@@ -563,6 +565,8 @@ def coevol_analysis(file_path, mixture=False, by_pos=False):
 
     mutations = list(binary_list.keys())
 
+    print('#Mutations', len(mutations))
+
     result = []
 
     for i, j in combinations(mutations, 2):
@@ -570,7 +574,8 @@ def coevol_analysis(file_path, mixture=False, by_pos=False):
         posA = parse_mut_str(i)['pos']
         posB = parse_mut_str(j)['pos']
         if posA > posB:
-            continue
+            i, j = j, i
+            posB, posA = posA, posB
 
         print(posA, posB)
 
@@ -599,7 +604,139 @@ def coevol_analysis(file_path, mixture=False, by_pos=False):
     result = calc_holm_Bonferroni(result, 'spearman_p_value', 0.05)
     result = calc_holm_Bonferroni(result, 'jaccard_p_value', 0.05)
 
+    assert (len(result) == len(combinations(mutations, 2)))
+
     dump_csv(file_path.parent / 'mutation_coexist.csv', result)
+
+
+def draw_potential_networks(file_path):
+
+    table = load_csv(file_path)
+
+    draw_by_statistic_value(
+        file_path.parent, [
+            i
+            for i in table
+            if float(i['spearman_p_value']) <= 0.05], 'spearman_rho')
+
+    draw_by_statistic_value(
+        file_path.parent, [
+            i
+            for i in table
+            if float(i['jaccard_p_value']) <= 0.05], 'jaccard')
+
+    # draw_by_statistic_p_value(
+    #     file_path.parent, table, 'spearman_p_value')
+
+    # draw_by_statistic_p_value(
+    #     file_path.parent, table, 'jaccard_p_value')
+
+
+def draw_by_statistic_value(
+        save_folder, table,
+        column='spearman_rho', selector=lambda x: float(x) >= 0):
+
+    table = [
+        i
+        for i in table
+        if selector(i[column])
+    ]
+    print('# edges', len(table))
+
+    save_path = save_folder / f'{column}.svg'
+
+    draw_network(
+        save_path, table, column,
+        edge_getter=lambda x: int(10 * float(x) + 0.5))
+
+
+def draw_by_statistic_p_value(
+        save_folder, table,
+        column='spearman_p_value', selector=lambda x: float(x) < 0.05):
+
+    table = [
+        i
+        for i in table
+        if selector(i[column])
+    ]
+    print('# edges', len(table))
+
+    save_path = save_folder / f'{column}.svg'
+
+    edge_width_settings = {
+        0.05: 1,
+        0.005: 2,
+        0.0005: 4,
+        0.00005: 8,
+    }
+
+    draw_network(
+        save_path, table, column,
+        edge_getter=lambda x: max(
+            w
+            for c, w in edge_width_settings.items()
+            if float(x) <= c
+        ))
+
+
+def draw_network(save_path, table, column, edge_getter):
+
+    edges = get_edge_weight(table, column, edge_getter)
+
+    vertices = sorted(list(set([
+        v
+        for pair in edges.keys()
+        for v in pair
+    ])))
+
+    edges = [
+        (vertices.index(i), vertices.index(j), w)
+        for (i, j), w in edges.items()
+    ]
+
+    # graph = ig.Graph()
+
+    # graph.add_vertices(vertices, {'color': 'cyan'})
+
+    # for (vi, vj, w) in edges:
+    #     graph.add_edge(vi, vj, width=w, len=14)
+
+    # graph.vs["label"] = graph.vs["name"]
+
+    # G = graph.to_networkx()
+
+    net = Network(
+        height='2000px', width='2000px', bgcolor='white', notebook=True)
+
+    # net.from_nx(G)
+
+    for idx, v in enumerate(vertices):
+        net.add_node(idx, label=v, shape='circle')
+
+    for idx, jdx, w in edges:
+        net.add_edge(idx, jdx, width=w)
+
+    print(str(save_path.parent / (save_path.name + '.html')))
+
+    net.show_buttons(filter_=['physics'])
+
+    net.show(str(save_path.parent / (save_path.name + '.html')))
+
+    # graph.write_svg(
+    #     str(save_path), width=1000, height=1000,
+    #     layout='fr',
+    #     font_size=10,
+    #     vertex_size=18)
+
+
+def get_edge_weight(table, column, edge_getter):
+
+    edges = {
+        (i['MutA'], i['MutB']): edge_getter(i[column])
+        for i in table
+    }
+
+    return edges
 
 
 def work():
@@ -611,7 +748,9 @@ def work():
     #     meta=DB / 'Jul 13, 2023' / 'paper_meta.csv',
     #     rx=DB / 'Jul 13, 2023' / 'tblRxHistory.csv')
 
-    coevol_analysis(DB / 'Jul 13, 2023' / 'unique_isolates.csv')
+    # coevol_analysis(DB / 'Jul 13, 2023' / 'unique_isolates.csv')
+    draw_potential_networks(DB / 'Jul 13, 2023' / 'mutation_coexist.csv')
+
 
 
 if __name__ == '__main__':
