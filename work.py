@@ -612,6 +612,11 @@ def coevol_analysis(file_path, mixture=False, by_pos=False):
 def draw_potential_networks(file_path):
 
     table = load_csv(file_path)
+    table = [
+        i
+        for i in table
+        if int(i['Both']) > 1
+    ]
 
     draw_by_statistic_value(
         file_path.parent, [
@@ -666,8 +671,8 @@ def draw_by_statistic_p_value(
     edge_width_settings = {
         0.05: 1,
         0.005: 2,
-        0.0005: 4,
-        0.00005: 8,
+        0.0005: 3,
+        0.00005: 4,
     }
 
     draw_network(
@@ -711,10 +716,14 @@ def draw_network(save_path, table, column, edge_getter):
     # net.from_nx(G)
 
     for idx, v in enumerate(vertices):
-        net.add_node(idx, label=v, shape='circle')
+        pos = parse_mut_str(v)['pos']
+        if pos in (118, 263, 155, 148):
+            net.add_node(idx, label=v, shape='circle', color='cyan')
+        else:
+            net.add_node(idx, label=v, shape='circle')
 
     for idx, jdx, w in edges:
-        net.add_edge(idx, jdx, width=w)
+        net.add_edge(idx, jdx, width=w*2, color='#9BC0F9')
 
     print(str(save_path.parent / (save_path.name + '.html')))
 
