@@ -170,3 +170,27 @@ def calc_holm_Bonferroni(records, column, alpha):
         r[f'HB_{column}'] = correct_p
 
     return records
+
+
+def calc_holm_Bonferroni_multiply_way(records, column):
+
+    [
+        i.update({
+            column: float(i[column])
+        })
+        for i in records
+    ]
+
+    records.sort(key=itemgetter(column))
+
+    num_total = len(records)
+    print(num_total)
+
+    for idx, r in enumerate(records):
+        p = float(r[column])
+        correct_p = p * (num_total - idx)
+        if correct_p <= 0.001:
+            correct_p = 0.001
+        r[f'HB_{column}'] = correct_p
+
+    return records

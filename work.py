@@ -20,7 +20,7 @@ from preset.statistics import calc_contigency_table
 from preset.statistics import calc_jaccard
 from preset.statistics import calc_spearman
 from itertools import combinations
-from preset.statistics import calc_holm_Bonferroni
+from preset.statistics import calc_holm_Bonferroni_multiply_way
 import igraph as ig
 from pyvis.network import Network
 
@@ -616,8 +616,14 @@ def draw_potential_networks(file_path):
 
     table = load_csv(file_path)
 
-    table = calc_holm_Bonferroni(table, 'spearman_p_value', 0.05)
-    table = calc_holm_Bonferroni(table, 'jaccard_p_value', 0.05)
+    table = [
+        i
+        for i in table
+        if float(i['spearman_rho']) > 0
+    ]
+
+    table = calc_holm_Bonferroni_multiply_way(table, 'spearman_p_value')
+    # table = calc_holm_Bonferroni(table, 'jaccard_p_value', 0.05)
     dump_csv(file_path, table)
 
     draw_by_statistic_value(
@@ -625,7 +631,7 @@ def draw_potential_networks(file_path):
             i
             for i in table
             # if float(i['spearman_p_value']) <= 0.05
-            if i.get('HB_spearman_p_value')
+            if float(i['HB_spearman_p_value']) <= 0.05
         ],
         'spearman_rho')
 
@@ -634,7 +640,7 @@ def draw_potential_networks(file_path):
             i
             for i in table
             # if float(i['jaccard_p_value']) <= 0.05
-            if i.get('HB_jaccard_p_value')
+            if float(i['jaccard_p_value']) <= 0.01
         ],
         'jaccard')
 
