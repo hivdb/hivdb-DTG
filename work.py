@@ -601,10 +601,13 @@ def coevol_analysis(file_path, mixture=False, by_pos=False):
 
         result.append(resp)
 
-    result = calc_holm_Bonferroni(result, 'spearman_p_value', 0.05)
-    result = calc_holm_Bonferroni(result, 'jaccard_p_value', 0.05)
+    result = [
+        i
+        for i in result
+        if i['Both'] > 1
+    ]
 
-    assert (len(result) == len(combinations(mutations, 2)))
+    # assert (len(result) == len(combinations(mutations, 2)))
 
     dump_csv(file_path.parent / 'mutation_coexist.csv', result)
 
@@ -612,23 +615,28 @@ def coevol_analysis(file_path, mixture=False, by_pos=False):
 def draw_potential_networks(file_path):
 
     table = load_csv(file_path)
-    table = [
-        i
-        for i in table
-        if int(i['Both']) > 1
-    ]
+
+    table = calc_holm_Bonferroni(table, 'spearman_p_value', 0.05)
+    table = calc_holm_Bonferroni(table, 'jaccard_p_value', 0.05)
+    dump_csv(file_path, table)
 
     draw_by_statistic_value(
         file_path.parent, [
             i
             for i in table
-            if float(i['spearman_p_value']) <= 0.05], 'spearman_rho')
+            # if float(i['spearman_p_value']) <= 0.05
+            if i.get('HB_spearman_p_value')
+        ],
+        'spearman_rho')
 
     draw_by_statistic_value(
         file_path.parent, [
             i
             for i in table
-            if float(i['jaccard_p_value']) <= 0.05], 'jaccard')
+            # if float(i['jaccard_p_value']) <= 0.05
+            if i.get('HB_jaccard_p_value')
+        ],
+        'jaccard')
 
     # draw_by_statistic_p_value(
     #     file_path.parent, table, 'spearman_p_value')
@@ -759,7 +767,6 @@ def work():
 
     # coevol_analysis(DB / 'Jul 13, 2023' / 'unique_isolates.csv')
     draw_potential_networks(DB / 'Jul 13, 2023' / 'mutation_coexist.csv')
-
 
 
 if __name__ == '__main__':

@@ -150,15 +150,23 @@ def calc_odds_ratio(contigency_table):
 
 def calc_holm_Bonferroni(records, column, alpha):
 
+    [
+        i.update({
+            column: float(i[column])
+        })
+        for i in records
+    ]
+
     records.sort(key=itemgetter(column))
 
     num_total = len(records)
+    print(num_total)
 
     for idx, r in enumerate(records):
-        p = r[column]
+        p = float(r[column])
         correct_p = alpha / (num_total - idx)
         if p >= correct_p:
             break
-        r[f'corrected_{column}'] = correct_p
+        r[f'HB_{column}'] = correct_p
 
     return records
