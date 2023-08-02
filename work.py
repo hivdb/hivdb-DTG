@@ -115,7 +115,7 @@ def collect_reference_meta(table_raw, table_meta):
     report = SummaryReport()
 
     continents = {
-        (i['Author'], i['RefYear']): i['Continent']
+        (i['Author'], i['RefYear']): i['Countries']
         for i in table_meta
     }
 
@@ -765,14 +765,14 @@ def get_edge_weight(table, column, edge_getter):
 def work():
     # get_geno_pheno(
     #     DB / 'May 30, 2023', DB / 'May 30, 2023' / 'geno_rx_pheno.csv')
-    # geno_analysis(
-    #     geno_file=DB / 'Jul 13, 2023' / 'geno-rx.dataset.tsv',
-    #     folder=DB / 'Jul 13, 2023',
-    #     meta=DB / 'Jul 13, 2023' / 'paper_meta.csv',
-    #     rx=DB / 'Jul 13, 2023' / 'tblRxHistory.csv')
+    geno_analysis(
+        geno_file=DB / 'Aug 02, 2023' / 'geno-rx.dataset.tsv',
+        folder=DB / 'Aug 02, 2023',
+        meta=DB / 'Aug 02, 2023' / 'paper_meta.csv',
+        rx=DB / 'Aug 02, 2023' / 'tblRxHistory.csv')
 
-    # coevol_analysis(DB / 'Jul 13, 2023' / 'unique_isolates.csv')
-    draw_potential_networks(DB / 'Jul 13, 2023' / 'mutation_coexist.csv')
+    coevol_analysis(DB / 'Aug 02, 2023' / 'unique_isolates.csv')
+    draw_potential_networks(DB / 'Aug 02, 2023' / 'mutation_coexist.csv')
 
 
 if __name__ == '__main__':
