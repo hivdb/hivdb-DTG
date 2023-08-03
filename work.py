@@ -579,6 +579,11 @@ def coevol_analysis(file_path, mixture=False, by_pos=False):
 
         print(posA, posB)
 
+        if not (
+            (posA in (263, 155, 118, 148)) or
+            (posB in (263, 155, 118, 148))):
+            continue
+
         listA = binary_list[i]
         listB = binary_list[j]
 
@@ -601,11 +606,11 @@ def coevol_analysis(file_path, mixture=False, by_pos=False):
 
         result.append(resp)
 
-    result = [
-        i
-        for i in result
-        if i['Both'] > 1
-    ]
+    # result = [
+    #     i
+    #     for i in result
+    #     if i['Both'] > 1
+    # ]
 
     # assert (len(result) == len(combinations(mutations, 2)))
 
@@ -616,11 +621,11 @@ def draw_potential_networks(file_path):
 
     table = load_csv(file_path)
 
-    table = [
-        i
-        for i in table
-        if float(i['spearman_rho']) > 0
-    ]
+    # table = [
+    #     i
+    #     for i in table
+    #     if float(i['spearman_rho']) > 0
+    # ]
 
     table = calc_holm_Bonferroni_multiply_way(table, 'spearman_p_value')
     # table = calc_holm_Bonferroni(table, 'jaccard_p_value', 0.05)
@@ -772,7 +777,7 @@ def work():
         rx=DB / 'Aug 02, 2023' / 'tblRxHistory.csv')
 
     coevol_analysis(DB / 'Aug 02, 2023' / 'unique_isolates.csv')
-    draw_potential_networks(DB / 'Aug 02, 2023' / 'mutation_coexist.csv')
+    # draw_potential_networks(DB / 'Aug 02, 2023' / 'mutation_coexist.csv')
 
 
 if __name__ == '__main__':
