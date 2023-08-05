@@ -15,11 +15,13 @@ nonpolymorphic:
   - S230R
   - R263K
 polymorphic:
+  - A49G
   - M50I
   - L74IM
   - Q95K
   - T97A
   - G149A
+  - V151I
   - E157Q
   - G163RK
   - D232N
