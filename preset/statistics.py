@@ -108,7 +108,8 @@ def calc_contigency_table(listA, listB):
         'both': len(both),
         'i_only': len(i_only),
         'j_only': len(j_only),
-        'none': len(none)
+        'none': len(none),
+        'total': len(match_list)
     }
 
 

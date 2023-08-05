@@ -10,12 +10,12 @@ from preset.file_formats import load_csv
 from preset.mutation_literal import parse_mut_str_list
 from preset.mutation_literal import parse_mut_str
 from preset.mutation_literal import bind_mut_str_list
+from preset.mutation_literal import bind_mut_str
 from preset.table import group_records_by
 from preset.mutation_ops import combine_mutation_pattern
 from preset.report import SummaryReport
 # from preset.geno_pheno import get_geno_pheno
 from datetime import datetime
-from preset.statistics import get_binary_mark_list
 from preset.statistics import calc_contigency_table
 from preset.statistics import calc_jaccard
 from preset.statistics import calc_spearman
@@ -23,6 +23,7 @@ from itertools import combinations
 from preset.statistics import calc_holm_Bonferroni_multiply_way
 import igraph as ig
 from pyvis.network import Network
+from dataclasses import dataclass
 
 
 WS = Path(__file__).resolve().parent
@@ -171,6 +172,18 @@ def get_isolate_nonpoly_drm(rec, main_drms):
 
     drms = nonpoly_drms + poly_drms
     drms.sort(key=itemgetter('pos'))
+    rec['drms_mixture'] = bind_mut_str_list(drms)
+    rec['has_mixture'] = any(
+        len(i['mut']) > 1
+        for i in drms
+    )
+
+    # remove mixture
+    [
+        i.update({'mut': i['mut'].replace(i['ref'], '')})
+        for i in drms
+    ]
+
     rec['drms'] = bind_mut_str_list(drms)
 
     return rec
@@ -195,7 +208,12 @@ def find_drm_from_mutation(mut, drm_list):
         matched_drm.append({
             'ref': mut['ref'],
             'pos': mut['pos'],
-            'mut': ''.join(sorted(list(shared_mut)))
+            # 'mut': ''.join(sorted(list(shared_mut)))
+            'mut': ''.join(sorted([
+                i
+                for i in mut['mut']
+                if i in drm['mut'] or i == mut['ref']
+            ]))
         })
 
     return matched_drm
@@ -539,19 +557,25 @@ def geno_analysis(geno_file, folder, meta, rx):
     dump_csv(folder / 'table 1.csv', report)
 
 
-def coevol_analysis(file_path, mixture=False, by_pos=False):
+def coevol_analysis(file_path, by_pos=False):
     table = load_csv(file_path)
     drms = [
-        i['drms']
+        i['drms_mixture']
         for i in table
     ]
 
-    if not mixture:
-        drms = [
-            bind_mut_str_list(
-                [j for j in parse_mut_str_list(i) if len(j['mut']) == 1])
-            for i in drms
-        ]
+    mutations = list(set([
+        bind_mut_str({
+            'ref': j['ref'],
+            'pos': j['pos'],
+            'mut': k
+        })
+        for i in table
+        for j in parse_mut_str_list(i['drms'])
+        for k in j['mut']
+    ]))
+
+    print('#Mutations', len(mutations))
 
     drms = [
         [i.strip() for i in i.split(',')]
@@ -561,34 +585,30 @@ def coevol_analysis(file_path, mixture=False, by_pos=False):
     print('# seq', len(drms))
     # main_drm_list = load_main_drm(WS / 'mutations.yml')
 
-    binary_list = get_binary_mark_list(drms)
-
-    mutations = list(binary_list.keys())
-
-    print('#Mutations', len(mutations))
-
     result = []
 
     for i, j in combinations(mutations, 2):
 
         posA = parse_mut_str(i)['pos']
         posB = parse_mut_str(j)['pos']
+        if posA == posB:
+            continue
+
         if posA > posB:
             i, j = j, i
             posB, posA = posA, posB
 
-        print(posA, posB)
+        # print(posA, posB)
 
-        if not (
-            (posA in (263, 155, 118, 148)) or
-            (posB in (263, 155, 118, 148))):
+        if not ((posA in (263, 155, 118, 148)) or
+                (posB in (263, 155, 118, 148))):
             continue
 
-        listA = binary_list[i]
-        listB = binary_list[j]
+        listA, listB = get_marked_list(
+            drms, parse_mut_str(i), parse_mut_str(j))
 
         spearman = calc_spearman(listA, listB)
-        jaccard = calc_jaccard(listA, listB)
+        # jaccard = calc_jaccard(listA, listB)
         contigency = calc_contigency_table(listA, listB)
 
         resp = {
@@ -600,9 +620,10 @@ def coevol_analysis(file_path, mixture=False, by_pos=False):
             'MutA_only': contigency['i_only'],
             'MutB_only': contigency['j_only'],
             'None': contigency['none'],
+            'total': contigency['total'],
         }
         resp.update(spearman)
-        resp.update(jaccard)
+        # resp.update(jaccard)
 
         result.append(resp)
 
@@ -615,6 +636,112 @@ def coevol_analysis(file_path, mixture=False, by_pos=False):
     # assert (len(result) == len(combinations(mutations, 2)))
 
     dump_csv(file_path.parent / 'mutation_coexist.csv', result)
+
+
+# TODO, dataclass mutation and mutation mixture
+@dataclass
+class Mutation:
+    ref: str
+    pos: int
+    mut: list
+
+    @property
+    def is_mixture(self):
+        return len(self.mut) > 1
+
+    def is_superset(self, mutation):
+        if self.ref != mutation.ref:
+            print('Ref mutation error.')
+
+        if self.pos != mutation.pos:
+            return False
+
+        return set(self.mut).issuperset(set(mutation.mut))
+
+    def contain(self, mutation):
+        if self.pos != mutation.pos:
+            return False
+        if self.ref != mutation.ref:
+            print('Ref mutation error.')
+
+        return all([i in self.mut for i in mutation.mut])
+
+    def no_overlap(self, mutation):
+        if self.pos != mutation.pos:
+            return False
+        if self.ref != mutation.ref:
+            print('Ref mutation error.')
+
+        return not (set(self.mut) & set(mutation.mut))
+
+    def is_same(self, mutation):
+        if self.pos != mutation.pos:
+            return False
+        if self.ref != mutation.ref:
+            print('Ref mutation error.')
+
+        return set(self.mut) == set(mutation.mut)
+
+
+def get_marked_list(drms, mutA, mutB):
+    mutA = Mutation(**mutA)
+    mutB = Mutation(**mutB)
+
+    listA = []
+    listB = []
+
+    for i in drms:
+        check_i = [
+            Mutation(**parse_mut_str(j))
+            for j in i
+        ]
+
+        check_A = [
+            j
+            for j in check_i
+            if j.pos == mutA.pos
+        ]
+
+        check_B = [
+            j
+            for j in check_i
+            if j.pos == mutB.pos
+        ]
+
+        if (not check_A) and (not check_B):
+            listA.append(0)
+            listB.append(0)
+            continue
+
+        if check_A and (not check_B):
+            check_A = check_A[0]
+            listA.append(1 if check_A.is_same(mutA) else 0)
+            listB.append(0)
+            continue
+
+        if (not check_A) and (check_B):
+            check_B = check_B[0]
+            listA.append(0)
+            listB.append(1 if check_B.is_same(mutB) else 0)
+            continue
+
+        check_A = check_A[0]
+        check_B = check_B[0]
+
+        if check_A.is_same(mutA) and check_B.is_same(mutB):
+            listA.append(1)
+            listB.append(1)
+        elif check_A.no_overlap(mutA) and check_B.is_same(mutB):
+            listA.append(0)
+            listB.append(1)
+        elif check_A.is_same(mutA) and check_B.no_overlap(mutB):
+            listA.append(1)
+            listB.append(0)
+        elif check_A.no_overlap(mutA) and check_B.no_overlap(mutB):
+            listA.append(0)
+            listB.append(0)
+
+    return listA, listB
 
 
 def draw_potential_networks(file_path):
