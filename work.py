@@ -715,14 +715,14 @@ def get_marked_list(drms, mutA, mutB):
 
         if check_A and (not check_B):
             check_A = check_A[0]
-            listA.append(1 if check_A.is_same(mutA) else 0)
+            listA.append(1 if check_A.contain(mutA) else 0)
             listB.append(0)
             continue
 
         if (not check_A) and (check_B):
             check_B = check_B[0]
             listA.append(0)
-            listB.append(1 if check_B.is_same(mutB) else 0)
+            listB.append(1 if check_B.contain(mutB) else 0)
             continue
 
         check_A = check_A[0]
