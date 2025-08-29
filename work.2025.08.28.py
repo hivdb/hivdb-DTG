@@ -155,7 +155,7 @@ def load_main_drm(path):
 
 def get_isolate_nonpoly_drm(
         rec, main_drms,
-        no_ref_mixture=True, no_mixture=True):
+        no_ref_mixture=True, no_mixture=False):
 
     complete_muts = rec['CompMutList']
     complete_muts = parse_mut_str_list(complete_muts)
@@ -173,35 +173,28 @@ def get_isolate_nonpoly_drm(
         ]
 
     if no_mixture:
+        complete_muts = [
+            i
+            for i in complete_muts
+            if len(i['mut']) <= 1
+        ]
+    else:
         mixture_muts = [
             i
             for i in complete_muts
             if len(i['mut']) > 1
         ]
         if len(mixture_muts):
-            print(mixture_muts)
-
-        complete_muts = [
-            i
-            for i in complete_muts
-            if len(i['mut']) <= 1
-        ]
+            print('Contain mixture', bind_mut_str_list(mixture_muts))
+            print(bind_mut_str_list(complete_muts))
 
     rec['CompMutList'] = bind_mut_str_list(complete_muts)
 
-    poly_drms = []
-    nonpoly_drms = []
+    drms = []
     for mut in complete_muts:
-        nonpoly_drms.extend(
-            find_drm_from_mutation(mut, main_drms['nonpolymorphic']))
+        drms.extend(
+            find_drm_from_mutation(mut, main_drms['drms']))
 
-        poly_drms.extend(
-            find_drm_from_mutation(mut, main_drms['polymorphic']))
-
-    rec['nonpoly_drms'] = bind_mut_str_list(nonpoly_drms)
-    rec['poly_drms'] = bind_mut_str_list(poly_drms)
-
-    drms = nonpoly_drms + poly_drms
     drms.sort(key=itemgetter('pos'))
     rec['drms'] = bind_mut_str_list(drms)
 
@@ -542,7 +535,8 @@ def geno_analysis(geno_file, folder, meta=None, rx=None):
     isolates = [
         i
         for i in isolates
-        if i['nonpoly_drms']
+        if i['INIMajorDRMs'] or i['INIMinorDRMs']
+        # if i['drms']
     ]
 
     dump_csv(folder / '2_extract_drms.csv', isolates)
@@ -583,7 +577,7 @@ def geno_analysis(geno_file, folder, meta=None, rx=None):
 
 def coevol_analysis(file_path, by_pos=False):
     table = load_csv(file_path)
-    drms = [
+    drms_seq = [
         i['drms']
         for i in table
         if i['drms']
@@ -601,14 +595,14 @@ def coevol_analysis(file_path, by_pos=False):
     ]))
 
     print('#Mutations', len(mutations))
-    print(mutations)
+    print(sorted(mutations))
 
-    drms = [
+    drms_seq = [
         [i.strip() for i in i.split(',')]
-        for i in drms
+        for i in drms_seq
     ]
 
-    print('# seq', len(drms))
+    print('# seq', len(drms_seq))
     # main_drm_list = load_main_drm(WS / 'mutations.yml')
 
     result = []
@@ -626,12 +620,12 @@ def coevol_analysis(file_path, by_pos=False):
 
         # print(posA, posB)
 
-        if not ((posA in (263, 155, 118, 148)) or
-                (posB in (263, 155, 118, 148))):
-            continue
+        # if not ((posA in (263, 155, 118, 148)) or
+        #         (posB in (263, 155, 118, 148))):
+        #     continue
 
         listA, listB = get_marked_list(
-            drms, parse_mut_str(i), parse_mut_str(j))
+            drms_seq, parse_mut_str(i), parse_mut_str(j))
 
         spearman = calc_spearman(listA, listB)
         # jaccard = calc_jaccard(listA, listB)
@@ -709,14 +703,14 @@ class Mutation:
         return set(self.mut) == set(mutation.mut)
 
 
-def get_marked_list(drms, mutA, mutB):
+def get_marked_list(drms_seq, mutA, mutB):
     mutA = Mutation(**mutA)
     mutB = Mutation(**mutB)
 
     listA = []
     listB = []
 
-    for i in drms:
+    for i in drms_seq:
         check_i = [
             Mutation(**parse_mut_str(j))
             for j in i
@@ -741,19 +735,29 @@ def get_marked_list(drms, mutA, mutB):
 
         if check_A and (not check_B):
             check_A = check_A[0]
-            listA.append(1 if check_A.contain(mutA) else 0)
-            listB.append(0)
+            if check_A.is_same(mutA):
+                listA.append(1)
+                listB.append(0)
             continue
 
         if (not check_A) and (check_B):
             check_B = check_B[0]
-            listA.append(0)
-            listB.append(1 if check_B.contain(mutB) else 0)
+            if check_B.is_same(mutB):
+                listA.append(0)
+                listB.append(1)
+            # listA.append(0)
+            # listB.append(1 if check_B.contain(mutB) else 0)
             continue
 
         check_A = check_A[0]
         check_B = check_B[0]
 
+        if (
+                (check_A.contain(mutA) and not check_A.is_same(mutA))
+                or
+                (check_B.contain(mutB) and not check_B.is_same(mutB))
+        ):
+            continue
         if check_A.is_same(mutA) and check_B.is_same(mutB):
             listA.append(1)
             listB.append(1)

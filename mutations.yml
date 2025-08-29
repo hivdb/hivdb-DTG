@@ -1,32 +1,28 @@
 # SDRM:
 nonpolymorphic:
-  - H51Y
-  - T66AIK
-  - E92Q
-  - G118R
-  - F121Y
-  - E138AKT
-  - G140AS
-  - Y143CHRS
-  - S147G
-  - Q148HRK
-  - S153AYF
-  - N155H
-  - S230R
   - R263K
-polymorphic:
+  - G118R
+  - Q148RK
+  - N155H
+  - E138AK
+  - G140AS
+  - S147G
+  - H51Y
+  - S230R
   - A49G
+  - G149A
+  - T66AI
   - M50I
+  - E157Q
+  - T97A
   - L74IM
   - Q95K
-  - T97A
-  - G149A
-  - V151I
-  - E157Q
-  - G163RK
   - D232N
-_potentials:
-  - V151I
-  - A49G
-  - N155ST
-  - S230N
+  # - E92Q
+  # - F121Y
+  # - Y143CHRS
+  # - S153AYF
+polymorphic:
+  - G163RK
+  # - V151I
+
