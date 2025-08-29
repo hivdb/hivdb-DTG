@@ -153,10 +153,41 @@ def load_main_drm(path):
     return main_drm_list
 
 
-def get_isolate_nonpoly_drm(rec, main_drms):
+def get_isolate_nonpoly_drm(
+        rec, main_drms,
+        no_ref_mixture=True, no_mixture=True):
 
     complete_muts = rec['CompMutList']
     complete_muts = parse_mut_str_list(complete_muts)
+
+    complete_muts = [
+        i
+        for i in complete_muts
+        if 'X' not in i['mut']
+    ]
+
+    if no_ref_mixture:
+        [
+            i.update({'mut': i['mut'].replace(i['ref'], '')})
+            for i in complete_muts
+        ]
+
+    if no_mixture:
+        mixture_muts = [
+            i
+            for i in complete_muts
+            if len(i['mut']) > 1
+        ]
+        if len(mixture_muts):
+            print(mixture_muts)
+
+        complete_muts = [
+            i
+            for i in complete_muts
+            if len(i['mut']) <= 1
+        ]
+
+    rec['CompMutList'] = bind_mut_str_list(complete_muts)
 
     poly_drms = []
     nonpoly_drms = []
@@ -172,19 +203,13 @@ def get_isolate_nonpoly_drm(rec, main_drms):
 
     drms = nonpoly_drms + poly_drms
     drms.sort(key=itemgetter('pos'))
-    rec['drms_mixture'] = bind_mut_str_list(drms)
-    rec['has_mixture'] = any(
-        len(i['mut']) > 1
-        for i in drms
-    )
-
-    # remove mixture
-    [
-        i.update({'mut': i['mut'].replace(i['ref'], '')})
-        for i in drms
-    ]
-
     rec['drms'] = bind_mut_str_list(drms)
+
+    if not no_mixture:
+        rec['has_mixture'] = any(
+            len(i['mut']) > 1
+            for i in drms
+        )
 
     return rec
 
@@ -219,22 +244,28 @@ def find_drm_from_mutation(mut, drm_list):
     return matched_drm
 
 
-def get_patient_unique_mutation(pt_iso_list, one_per_person=True):
+def get_patient_unique_mutation(table_row):
 
-    selected_pattern = []
+    isolates = []
+    for _, pt_iso_list in group_records_by(table_row, 'PtID').items():
+        if len(pt_iso_list) == 1:
+            isolates.extend(pt_iso_list)
+            continue
 
-    for drm_pattern, rec_list in group_records_by(pt_iso_list, 'drms').items():
-        selected_pattern.append(rec_list[0])
+        isolate = pt_iso_list[0]
+        mutations = [
+            bind_mut_str(j)
+            for i in pt_iso_list
+            for j in parse_mut_str_list(i['CompMutList'])
+        ]
+        mutations = list(set(mutations))
+        isolate['CompMutList'] = ','.join(mutations)
+        isolates.append(isolate)
 
-    print(
-        f"Get unique mutation pattern from PtID {pt_iso_list[0]['PtID']}:"
-        f" {len(selected_pattern)}/{len(pt_iso_list)}")
+    return isolates
 
-    if one_per_person:
-        selected_pattern.sort(key=lambda x: len(parse_mut_str_list(x['drms'])))
-        return selected_pattern[-1:]
-    else:
-        return selected_pattern
+    # for drm_pattern, rec_list in group_records_by(pt_iso_list, ).items():
+    #     selected_pattern.append(rec_list[0])
 
 
 def count_drm_pattern_num_isolate(isolates):
@@ -368,7 +399,7 @@ def prepare_w_major_pos(report, w_major_pos, pos_order):
     w_major_pos = sorted(list(
         group_records_by(w_major_pos, 'num_major_pos').items()),
         key=lambda x: x[0]
-        )
+    )
 
     for _, num_major_pos_list in w_major_pos:
         num_major_pos_list = list(
@@ -393,13 +424,13 @@ def prepare_w_major_pos(report, w_major_pos, pos_order):
             ]
 
             sub_report = [{
-                    'drm_pattern': rec['drm_pattern'],
-                    'num_isolate': rec['num_isolate'],
-                    'major_pos_list': ', '.join([f'{p}' for p in major_pos]),
-                    'num_pos': rec['num_pos'],
-                    'pos_list': join_list_str(rec['pos_list'], gap=True),
-                    # TODO: a column contains a list of integers, how to sort them in text format?
-                }
+                'drm_pattern': rec['drm_pattern'],
+                'num_isolate': rec['num_isolate'],
+                'major_pos_list': ', '.join([f'{p}' for p in major_pos]),
+                'num_pos': rec['num_pos'],
+                'pos_list': join_list_str(rec['pos_list'], gap=True),
+                # TODO: a column contains a list of integers, how to sort them in text format?
+            }
                 for rec in major_pos_list
             ]
 
@@ -425,7 +456,7 @@ def prepare_wo_major_pos(report, wo_major_pos, pos_order):
     wo_major_pos = sorted(list(
         group_records_by(wo_major_pos, 'num_pos').items()),
         key=lambda x: x[0]
-        )
+    )
 
     for _, num_pos_list in wo_major_pos:
 
@@ -438,12 +469,12 @@ def prepare_wo_major_pos(report, wo_major_pos, pos_order):
         ]
 
         sub_report = [{
-                'drm_pattern': rec['drm_pattern'],
-                'num_isolate': rec['num_isolate'],
-                'major_pos_list': '',
-                'num_pos': rec['num_pos'],
-                'pos_list': join_list_str(rec['pos_list'], gap=True),
-            }
+            'drm_pattern': rec['drm_pattern'],
+            'num_isolate': rec['num_isolate'],
+            'major_pos_list': '',
+            'num_pos': rec['num_pos'],
+            'pos_list': join_list_str(rec['pos_list'], gap=True),
+        }
             for rec in num_pos_list
         ]
 
@@ -456,9 +487,9 @@ def sort_pattern_pos(pattern, pos_order=[]):
     pattern = parse_mut_str_list(pattern)
     pattern.sort(key=itemgetter('pos'))
     pattern.sort(
-            key=lambda x:
-            (pos_order + [x['pos']]).index(x['pos'])
-        )
+        key=lambda x:
+        (pos_order + [x['pos']]).index(x['pos'])
+    )
 
     return bind_mut_str_list(pattern, join_str=' + ')
 
@@ -488,51 +519,43 @@ def get_pos_order(main_drm_list):
 def geno_analysis(geno_file, folder, meta=None, rx=None):
     table_raw = load_csv(geno_file)
     main_drm_list = load_main_drm(WS / 'mutations.yml')
+    main_drm_list['drms'] = (
+        main_drm_list['nonpolymorphic'] + main_drm_list['polymorphic'])
+
     # table_meta = load_csv(meta)
     # table_rx_history = load_csv(rx)
 
-    table_raw = [
-        get_isolate_nonpoly_drm(i, main_drm_list)
-        for i in table_raw
-    ]
+    print('# Raw isolates: ', len(table_raw))
 
-    dump_csv(folder / 'find_drm.csv', table_raw)
+    isolates = get_patient_unique_mutation(table_raw)
 
-    table_nonpoly = [
-        i
-        for i in table_raw
-        if i['nonpoly_drms']
-    ]
+    dump_csv(folder / '1_one_per_pt_isolates.csv', isolates)
 
-    print(f'Including isolates with nonpoly DRMs: {len(table_nonpoly)}')
-    print('*' * 20)
-
-    # report_raw = collect_reference_info(table_raw)
-    report_nonpoly = collect_reference_info(table_nonpoly)
-
-    isolates = []
-    pt_multiple_isolate = 0
-    for _, pt_iso_list in group_records_by(table_nonpoly, 'PtID').items():
-        if len(pt_iso_list) == 1:
-            isolates.extend(pt_iso_list)
-        else:
-            pt_multiple_isolate += 1
-            isolates.extend(get_patient_unique_mutation(pt_iso_list, True))
-
-    report_nonpoly.patient_with_multiple_isolate = pt_multiple_isolate
-
-    # report_meta = collect_reference_meta(isolates, table_meta)
-    # report_rx = collect_rx_info(isolates, table_rx_history)
-
-    # report = report_raw.table() + \
-    #     report_nonpoly.table('W_DRM') + \
-    #     report_meta.table()
-
-    # dump_csv(folder / 'reference_info.csv', report)
     print(f'Isolates after removing duplication: {len(isolates)}')
     print('*' * 20)
 
-    dump_csv(folder / 'unique_isolates.csv', isolates)
+    isolates = [
+        get_isolate_nonpoly_drm(i, main_drm_list)
+        for i in isolates
+    ]
+
+    isolates = [
+        i
+        for i in isolates
+        if i['nonpoly_drms']
+    ]
+
+    dump_csv(folder / '2_extract_drms.csv', isolates)
+
+    # table_nonpoly = [
+    #     i
+    #     for i in isolates
+    #     if i['nonpoly_drms']
+    # ]
+
+    # print(f'Including isolates with nonpoly DRMs: {len(table_nonpoly)}')
+    # print('*' * 20)
+
     return
 
     drm_pattern = count_drm_pattern_num_isolate(isolates)
@@ -552,7 +575,7 @@ def geno_analysis(geno_file, folder, meta=None, rx=None):
                 -x['num_isolate']
             ] +
             sorted(split_list_str(x['pos_list'], vtype=int))
-        )
+    )
     # TIP: fix the order of sorted list, if the num isolate is the same
 
     dump_csv(folder / 'table 1.csv', report)
@@ -561,8 +584,9 @@ def geno_analysis(geno_file, folder, meta=None, rx=None):
 def coevol_analysis(file_path, by_pos=False):
     table = load_csv(file_path)
     drms = [
-        i['drms_mixture']
+        i['drms']
         for i in table
+        if i['drms']
     ]
 
     mutations = list(set([
@@ -577,6 +601,7 @@ def coevol_analysis(file_path, by_pos=False):
     ]))
 
     print('#Mutations', len(mutations))
+    print(mutations)
 
     drms = [
         [i.strip() for i in i.split(',')]
@@ -913,7 +938,7 @@ def work():
         meta=None,
         rx=None)
 
-    coevol_analysis(DB / 'Aug 28, 2025' / 'unique_isolates.csv')
+    coevol_analysis(DB / 'Aug 28, 2025' / '2_extract_drms.csv')
 
 
 if __name__ == '__main__':
